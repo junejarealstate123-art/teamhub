@@ -4,9 +4,7 @@ import { supabase } from './supabase'
 const today = () => new Date().toISOString().split("T")[0]
 const nowHHMM = () => { const d = new Date(); return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}` }
 const timeToMin = (t) => { const [h,m] = t.split(":").map(Number); return h*60+m }
-const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate()-n); return d.toISOString().split("T")[0] }
 const isPastDate = (d) => new Date(d) < new Date(today())
-const dayName = (date) => ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][new Date(date).getDay()]
 
 const C = {
   bg:"#f7f8fa", surface:"#ffffff", border:"#e5e7eb",
@@ -16,7 +14,7 @@ const C = {
   warning:"#f59e0b", warningLight:"#fef3c7",
   danger:"#ef4444", dangerLight:"#fee2e2",
   purple:"#8b5cf6", purpleLight:"#ede9fe",
-  orange:"#f97316", orangeLight:"#ffedd5",
+  orange:"#f97316",
 }
 
 const avatarColors = ["#6366f1","#10b981","#f59e0b","#ec4899","#8b5cf6","#ef4444","#14b8a6","#f97316"]
@@ -80,20 +78,20 @@ function LoginScreen({ form, setForm, onLogin, error }) {
           </div>
           <p style={{ color:C.textMuted, fontSize:14 }}>Team management platform</p>
         </div>
-      
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:28, boxShadow:"0 1px 3px rgba(0,0,0,0.04)" }}>
           <div style={{ marginBottom:14 }}>
             <label style={{ display:"block", color:C.text, fontSize:13, marginBottom:6, fontWeight:500 }}>Email</label>
             <input value={form.email} onChange={e => setForm(f=>({...f,email:e.target.value}))}
               onKeyDown={e => e.key==="Enter" && onLogin()}
               style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box", fontFamily:"inherit" }}
-              placeholder="email@team.com" />
+              placeholder="Enter your email" />
           </div>
           <div style={{ marginBottom:18 }}>
             <label style={{ display:"block", color:C.text, fontSize:13, marginBottom:6, fontWeight:500 }}>Password</label>
             <input type="password" value={form.password} onChange={e => setForm(f=>({...f,password:e.target.value}))}
               onKeyDown={e => e.key==="Enter" && onLogin()}
               style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box", fontFamily:"inherit" }}
-              placeholder="••••••" />
+              placeholder="Enter your password" />
           </div>
           {error && <p style={{ color:C.danger, fontSize:13, marginBottom:12, background:C.dangerLight, padding:"8px 12px", borderRadius:6 }}>{error}</p>}
           <button onClick={onLogin} style={{ width:"100%", background:C.primary, border:"none", borderRadius:10, padding:"12px", color:"#fff", fontSize:14, fontWeight:600, cursor:"pointer" }}>
@@ -108,23 +106,25 @@ function LoginScreen({ form, setForm, onLogin, error }) {
 // ============ ADMIN DASHBOARD ============
 function AdminDashboard({ user, onLogout }) {
   const [tab, setTab] = useState("overview")
-  const [data, setData] = useState({ members:[], tasks:[], attendance:{}, reports:{}, stats:{}, comments:{} })
+  const [data, setData] = useState({ members:[], tasks:[], attendance:{}, reports:{}, stats:{}, comments:{}, reportComments:{} })
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
-    const [{ data:members }, { data:tasks }, { data:att }, { data:reps }, { data:stats }, { data:comments }] = await Promise.all([
+    const [{ data:members }, { data:tasks }, { data:att }, { data:reps }, { data:stats }, { data:comments }, { data:reportComments }] = await Promise.all([
       supabase.from('members').select('*').eq('is_admin', false).order('created_at'),
       supabase.from('tasks').select('*').order('created_at'),
       supabase.from('attendance').select('*'),
       supabase.from('reports').select('*'),
       supabase.from('member_stats').select('*'),
       supabase.from('task_comments').select('*').order('created_at'),
+      supabase.from('report_comments').select('*').order('created_at'),
     ])
     const attMap = {}; (att||[]).forEach(a=>{ if(!attMap[a.date]) attMap[a.date]={}; attMap[a.date][a.member_id]={checkIn:a.check_in,checkOut:a.check_out,status:a.status,reason:a.reason,lateBy:a.late_by} })
     const repMap = {}; (reps||[]).forEach(r=>{ if(!repMap[r.date]) repMap[r.date]={}; repMap[r.date][r.member_id]={tasksCompleted:r.tasks_completed,hoursWorked:r.hours_worked,blockers:r.blockers,notes:r.notes,submittedAt:r.submitted_at} })
     const statsMap = {}; (stats||[]).forEach(s=>{ statsMap[s.member_id]={lateCount:s.late_count,strikes:s.strikes} })
     const cmtMap = {}; (comments||[]).forEach(c=>{ if(!cmtMap[c.task_id]) cmtMap[c.task_id]=[]; cmtMap[c.task_id].push({author:c.author,text:c.text,time:c.time}) })
-    setData({ members:members||[], tasks:tasks||[], attendance:attMap, reports:repMap, stats:statsMap, comments:cmtMap })
+    const rcMap = {}; (reportComments||[]).forEach(rc=>{ const k = `${rc.report_member_id}|${rc.report_date}`; if(!rcMap[k]) rcMap[k]=[]; rcMap[k].push({id:rc.id, author:rc.author, text:rc.text, time:new Date(rc.created_at).toLocaleString()}) })
+    setData({ members:members||[], tasks:tasks||[], attendance:attMap, reports:repMap, stats:statsMap, comments:cmtMap, reportComments:rcMap })
     setLoading(false)
   }, [])
 
@@ -163,7 +163,7 @@ function AdminDashboard({ user, onLogout }) {
         {tab==="members" && <AdminMembers data={data} refresh={refresh} />}
         {tab==="tasks" && <AdminTasks data={data} refresh={refresh} />}
         {tab==="attendance" && <AdminAttendance data={data} refresh={refresh} />}
-        {tab==="reports" && <AdminReports data={data} />}
+        {tab==="reports" && <AdminReports data={data} user={user} refresh={refresh} />}
       </div>
     </div>
   )
@@ -234,6 +234,8 @@ function AdminMembers({ data, refresh }) {
   const [form, setForm] = useState({ name:"", email:"", password:"", role:"", checkin_time:"09:00" })
   const [adding, setAdding] = useState(false)
   const [credShow, setCredShow] = useState(null)
+  const [editId, setEditId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
 
   const genPassword = () => Math.random().toString(36).slice(-6)
 
@@ -250,6 +252,31 @@ function AdminMembers({ data, refresh }) {
     setAdding(false)
     refresh()
   }
+
+  const startEdit = (m) => {
+    setEditId(m.id)
+    setEditForm({ name:m.name, email:m.email, password:m.password, role:m.role, checkin_time:m.checkin_time })
+  }
+
+  const saveEdit = async () => {
+    if (!editForm.name||!editForm.email||!editForm.role) { alert("Sab fields zaroori hain!"); return }
+    const avatar = editForm.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()
+    const { error } = await supabase.from('members').update({ 
+      name:editForm.name, 
+      email:editForm.email.toLowerCase(), 
+      password:editForm.password, 
+      role:editForm.role, 
+      checkin_time:editForm.checkin_time,
+      avatar
+    }).eq('id', editId)
+    if (error) { alert("Error: " + error.message); return }
+    setEditId(null)
+    setEditForm(null)
+    refresh()
+    alert("Member update ho gaya!")
+  }
+
+  const cancelEdit = () => { setEditId(null); setEditForm(null) }
 
   const deleteMember = async (id) => {
     if (!confirm("Delete this member?")) return
@@ -295,14 +322,50 @@ function AdminMembers({ data, refresh }) {
         </div>
       )}
       <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-        {data.members.map(m => (
+        {data.members.map(m => editId === m.id ? (
+          <div key={m.id} style={{ background:C.surface, border:`2px solid ${C.primary}`, borderRadius:12, padding:18 }}>
+            <p style={{ color:C.primary, fontSize:13, fontWeight:600, marginBottom:12 }}>✏️ Editing: {m.name}</p>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+              <div>
+                <label style={{ color:C.textMuted, fontSize:11, display:"block", marginBottom:3, fontWeight:500 }}>Name</label>
+                <input value={editForm.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} placeholder="Name"
+                  style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+              </div>
+              <div>
+                <label style={{ color:C.textMuted, fontSize:11, display:"block", marginBottom:3, fontWeight:500 }}>Email</label>
+                <input value={editForm.email} onChange={e=>setEditForm(f=>({...f,email:e.target.value}))} placeholder="Email"
+                  style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+              </div>
+              <div>
+                <label style={{ color:C.textMuted, fontSize:11, display:"block", marginBottom:3, fontWeight:500 }}>Password</label>
+                <input value={editForm.password} onChange={e=>setEditForm(f=>({...f,password:e.target.value}))} placeholder="Password"
+                  style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+              </div>
+              <div>
+                <label style={{ color:C.textMuted, fontSize:11, display:"block", marginBottom:3, fontWeight:500 }}>Role</label>
+                <input value={editForm.role} onChange={e=>setEditForm(f=>({...f,role:e.target.value}))} placeholder="Role"
+                  style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+              </div>
+            </div>
+            <div style={{ marginBottom:14 }}>
+              <label style={{ color:C.textMuted, fontSize:11, display:"block", marginBottom:3, fontWeight:500 }}>Check-in Time</label>
+              <input type="time" value={editForm.checkin_time} onChange={e=>setEditForm(f=>({...f,checkin_time:e.target.value}))}
+                style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13 }} />
+            </div>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={saveEdit} style={{ background:C.primary, border:"none", color:"#fff", padding:"8px 18px", borderRadius:6, fontSize:13, cursor:"pointer", fontWeight:600 }}>Save Changes</button>
+              <button onClick={cancelEdit} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"8px 18px", borderRadius:6, fontSize:13, cursor:"pointer" }}>Cancel</button>
+            </div>
+          </div>
+        ) : (
           <div key={m.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 18px", display:"flex", alignItems:"center", gap:14 }}>
             <div style={{ width:40, height:40, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:600, color:"#fff" }}>{m.avatar}</div>
             <div style={{ flex:1 }}>
               <p style={{ color:C.text, fontWeight:600, fontSize:14 }}>{m.name}</p>
               <p style={{ color:C.textMuted, fontSize:12 }}>{m.email} · {m.role} · 🕐 {m.checkin_time}</p>
             </div>
-            <button onClick={()=>deleteMember(m.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:12, padding:"6px 12px", borderRadius:6, cursor:"pointer" }}>Remove</button>
+            <button onClick={()=>startEdit(m)} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>✏️ Edit</button>
+            <button onClick={()=>deleteMember(m.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer" }}>Remove</button>
           </div>
         ))}
       </div>
@@ -476,9 +539,32 @@ function AdminAttendance({ data, refresh }) {
   )
 }
 
-function AdminReports({ data }) {
+function AdminReports({ data, user, refresh }) {
   const [viewDate, setViewDate] = useState(today())
   const reports = data.reports[viewDate] || {}
+  const [commentBox, setCommentBox] = useState({})
+  const [commentText, setCommentText] = useState({})
+
+  const addComment = async (memberId) => {
+    const text = commentText[memberId]?.trim()
+    if (!text) { alert("Comment likhein!"); return }
+    const { error } = await supabase.from('report_comments').insert({
+      report_member_id: memberId,
+      report_date: viewDate,
+      author: user.name,
+      text: text
+    })
+    if (error) { alert("Error: " + error.message); return }
+    setCommentText({ ...commentText, [memberId]: "" })
+    setCommentBox({ ...commentBox, [memberId]: false })
+    refresh()
+  }
+
+  const deleteComment = async (commentId) => {
+    if (!confirm("Delete this comment?")) return
+    await supabase.from('report_comments').delete().eq('id', commentId)
+    refresh()
+  }
 
   return (
     <div>
@@ -490,6 +576,8 @@ function AdminReports({ data }) {
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
         {data.members.map(m => {
           const r = reports[m.id]
+          const commentKey = `${m.id}|${viewDate}`
+          const comments = data.reportComments[commentKey] || []
           return (
             <div key={m.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
               <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
@@ -509,6 +597,41 @@ function AdminReports({ data }) {
                   {r.notes && <div style={{ gridColumn:"1/-1" }}><p style={{ color:C.textMuted, fontSize:11, marginBottom:3 }}>Notes</p><p style={{ color:C.text, fontSize:13 }}>{r.notes}</p></div>}
                 </div>
               )}
+              {r && (
+                <div style={{ marginTop:14, paddingTop:12, borderTop:`1px solid ${C.border}` }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                    <p style={{ color:C.textMuted, fontSize:12, fontWeight:600 }}>💬 Admin Comments ({comments.length})</p>
+                    <button onClick={()=>setCommentBox({...commentBox, [m.id]: !commentBox[m.id]})}
+                      style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:11, padding:"5px 10px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>
+                      {commentBox[m.id] ? "Cancel" : "+ Add Comment"}
+                    </button>
+                  </div>
+                  {commentBox[m.id] && (
+                    <div style={{ background:C.bg, borderRadius:8, padding:10, marginBottom:10 }}>
+                      <textarea value={commentText[m.id]||""} onChange={e=>setCommentText({...commentText, [m.id]: e.target.value})}
+                        placeholder="Apna comment likhein..." rows={2}
+                        style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", fontFamily:"inherit", resize:"vertical", marginBottom:8 }} />
+                      <button onClick={()=>addComment(m.id)} style={{ background:C.primary, border:"none", color:"#fff", padding:"6px 14px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>Send Comment</button>
+                    </div>
+                  )}
+                  {comments.length > 0 && (
+                    <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                      {comments.map((c,i) => (
+                        <div key={c.id||i} style={{ background:C.primaryLight, borderRadius:8, padding:"10px 12px", fontSize:13 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"start", marginBottom:4 }}>
+                            <strong style={{ color:C.primary, fontSize:12 }}>{c.author}</strong>
+                            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                              <span style={{ color:C.textLight, fontSize:11 }}>{c.time}</span>
+                              {c.id && <button onClick={()=>deleteComment(c.id)} style={{ background:"transparent", border:"none", color:C.danger, fontSize:11, cursor:"pointer", padding:0 }}>✕</button>}
+                            </div>
+                          </div>
+                          <p style={{ color:C.text, fontSize:13 }}>{c.text}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )
         })}
@@ -520,19 +643,21 @@ function AdminReports({ data }) {
 // ============ MEMBER DASHBOARD ============
 function MemberDashboard({ user, setUser, onLogout }) {
   const [tab, setTab] = useState("home")
-  const [data, setData] = useState({ tasks:[], attendance:{}, reports:{}, stats:{} })
+  const [data, setData] = useState({ tasks:[], attendance:{}, reports:{}, stats:{}, reportComments:{} })
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
-    const [{ data:tasks }, { data:att }, { data:reps }, { data:stats }] = await Promise.all([
+    const [{ data:tasks }, { data:att }, { data:reps }, { data:stats }, { data:reportComments }] = await Promise.all([
       supabase.from('tasks').select('*').eq('assigned_to', user.id).order('created_at'),
       supabase.from('attendance').select('*').eq('member_id', user.id),
       supabase.from('reports').select('*').eq('member_id', user.id),
       supabase.from('member_stats').select('*').eq('member_id', user.id).maybeSingle(),
+      supabase.from('report_comments').select('*').eq('report_member_id', user.id).order('created_at'),
     ])
     const attMap = {}; (att||[]).forEach(a=>{ attMap[a.date]={checkIn:a.check_in,checkOut:a.check_out,status:a.status,reason:a.reason,lateBy:a.late_by} })
     const repMap = {}; (reps||[]).forEach(r=>{ repMap[r.date]={tasksCompleted:r.tasks_completed,hoursWorked:r.hours_worked,blockers:r.blockers,notes:r.notes} })
-    setData({ tasks:tasks||[], attendance:attMap, reports:repMap, stats:stats?{lateCount:stats.late_count, strikes:stats.strikes}:{lateCount:0,strikes:0} })
+    const rcMap = {}; (reportComments||[]).forEach(rc=>{ if(!rcMap[rc.report_date]) rcMap[rc.report_date]=[]; rcMap[rc.report_date].push({author:rc.author, text:rc.text, time:new Date(rc.created_at).toLocaleString()}) })
+    setData({ tasks:tasks||[], attendance:attMap, reports:repMap, stats:stats?{lateCount:stats.late_count, strikes:stats.strikes}:{lateCount:0,strikes:0}, reportComments:rcMap })
     setLoading(false)
   }, [user.id])
 
@@ -588,6 +713,8 @@ function MemberHome({ data, user }) {
   const strikes = data.stats.strikes
   const penalty = Math.floor(lc/3)*3
 
+  const totalComments = Object.values(data.reportComments).reduce((s,c)=>s+c.length, 0)
+
   return (
     <div>
       <h2 style={{ color:C.text, fontSize:22, fontWeight:700, marginBottom:4 }}>Assalam u Alaikum, {user.name.split(" ")[0]}! 👋</h2>
@@ -611,6 +738,7 @@ function MemberHome({ data, user }) {
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
           <p style={{ color:C.textMuted, fontSize:12, marginBottom:6 }}>Daily Report</p>
           <p style={{ color:reportDone?C.success:C.danger, fontSize:18, fontWeight:700 }}>{reportDone?"✓ Submitted":"Pending"}</p>
+          {totalComments > 0 && <p style={{ color:C.primary, fontSize:11, marginTop:4, fontWeight:600 }}>💬 {totalComments} admin comments</p>}
         </div>
       </div>
     </div>
@@ -774,6 +902,7 @@ function MemberReport({ data, user, refresh }) {
   const existing = data.reports[td]
   const [form, setForm] = useState(existing || { tasksCompleted:"", hoursWorked:"", blockers:"", notes:"" })
   const [submitted, setSubmitted] = useState(!!existing)
+  const [viewDate, setViewDate] = useState(td)
 
   const submitReport = async () => {
     if (!form.tasksCompleted||!form.hoursWorked) { alert("Tasks aur hours zaroori hain!"); return }
@@ -786,20 +915,41 @@ function MemberReport({ data, user, refresh }) {
     refresh()
   }
 
+  const viewComments = data.reportComments[viewDate] || []
+  const todayComments = data.reportComments[td] || []
+
   return (
     <div>
       <h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:4 }}>Daily Report</h2>
       <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{td}</p>
       {submitted ? (
-        <div style={{ background:C.successLight, border:`1px solid ${C.success}`, borderRadius:16, padding:24 }}>
-          <p style={{ color:C.success, fontSize:18, fontWeight:700, marginBottom:6 }}>✓ Report submitted!</p>
-          <div style={{ background:"#fff", borderRadius:10, padding:16, marginTop:14, display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-            <div><p style={{ color:C.textMuted, fontSize:11 }}>Tasks completed</p><p style={{ color:C.text, fontSize:14 }}>{form.tasksCompleted}</p></div>
-            <div><p style={{ color:C.textMuted, fontSize:11 }}>Hours worked</p><p style={{ color:C.text, fontSize:14 }}>{form.hoursWorked}h</p></div>
-            {form.blockers && <div style={{ gridColumn:"1/-1" }}><p style={{ color:C.textMuted, fontSize:11 }}>Blockers</p><p style={{ color:C.warning, fontSize:13 }}>{form.blockers}</p></div>}
-            {form.notes && <div style={{ gridColumn:"1/-1" }}><p style={{ color:C.textMuted, fontSize:11 }}>Notes</p><p style={{ color:C.text, fontSize:13 }}>{form.notes}</p></div>}
+        <div>
+          <div style={{ background:C.successLight, border:`1px solid ${C.success}`, borderRadius:16, padding:24, marginBottom:16 }}>
+            <p style={{ color:C.success, fontSize:18, fontWeight:700, marginBottom:6 }}>✓ Report submitted!</p>
+            <div style={{ background:"#fff", borderRadius:10, padding:16, marginTop:14, display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+              <div><p style={{ color:C.textMuted, fontSize:11 }}>Tasks completed</p><p style={{ color:C.text, fontSize:14 }}>{form.tasksCompleted}</p></div>
+              <div><p style={{ color:C.textMuted, fontSize:11 }}>Hours worked</p><p style={{ color:C.text, fontSize:14 }}>{form.hoursWorked}h</p></div>
+              {form.blockers && <div style={{ gridColumn:"1/-1" }}><p style={{ color:C.textMuted, fontSize:11 }}>Blockers</p><p style={{ color:C.warning, fontSize:13 }}>{form.blockers}</p></div>}
+              {form.notes && <div style={{ gridColumn:"1/-1" }}><p style={{ color:C.textMuted, fontSize:11 }}>Notes</p><p style={{ color:C.text, fontSize:13 }}>{form.notes}</p></div>}
+            </div>
+            <button onClick={()=>setSubmitted(false)} style={{ marginTop:14, background:"transparent", border:`1px solid ${C.success}`, color:C.success, padding:"8px 18px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>Edit</button>
           </div>
-          <button onClick={()=>setSubmitted(false)} style={{ marginTop:14, background:"transparent", border:`1px solid ${C.success}`, color:C.success, padding:"8px 18px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>Edit</button>
+          {todayComments.length > 0 && (
+            <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:16 }}>
+              <p style={{ color:C.text, fontSize:14, fontWeight:600, marginBottom:10 }}>💬 Admin Feedback ({todayComments.length})</p>
+              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                {todayComments.map((c,i)=>(
+                  <div key={i} style={{ background:C.primaryLight, borderRadius:8, padding:"10px 12px" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
+                      <strong style={{ color:C.primary, fontSize:12 }}>{c.author}</strong>
+                      <span style={{ color:C.textLight, fontSize:11 }}>{c.time}</span>
+                    </div>
+                    <p style={{ color:C.text, fontSize:13 }}>{c.text}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:24 }}>
