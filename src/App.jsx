@@ -80,12 +80,7 @@ function LoginScreen({ form, setForm, onLogin, error }) {
           </div>
           <p style={{ color:C.textMuted, fontSize:14 }}>Team management platform</p>
         </div>
-        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:28, boxShadow:"0 1px 3px rgba(0,0,0,0.04)" }}>
-          <div style={{ background:C.primaryLight, borderRadius:10, padding:"12px 14px", marginBottom:20, fontSize:12, color:C.primary, fontFamily:"ui-monospace, monospace", lineHeight:1.6 }}>
-            <strong>Default Admin:</strong><br/>
-            Email: admin@team.com<br/>
-            Password: admin123
-          </div>
+      
           <div style={{ marginBottom:14 }}>
             <label style={{ display:"block", color:C.text, fontSize:13, marginBottom:6, fontWeight:500 }}>Email</label>
             <input value={form.email} onChange={e => setForm(f=>({...f,email:e.target.value}))}
