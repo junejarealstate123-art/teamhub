@@ -103,6 +103,175 @@ function LoginScreen({ form, setForm, onLogin, error }) {
   )
 }
 
+// ============ SHARED: VIDEO GRID (Excel-like) ============
+function VideoGrid({ memberId }) {
+  const [date, setDate] = useState(today())
+  const [channels, setChannels] = useState([])
+  const [columns, setColumns] = useState([])
+  const [status, setStatus] = useState({})
+  const [cells, setCells] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [newChannel, setNewChannel] = useState("")
+  const [newColumn, setNewColumn] = useState("")
+  const [editingCell, setEditingCell] = useState(null)
+  const [cellDraft, setCellDraft] = useState("")
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const [{ data: ch }, { data: cols }] = await Promise.all([
+      supabase.from('video_channels').select('*').eq('member_id', memberId).order('sort_order').order('created_at'),
+      supabase.from('video_columns').select('*').eq('member_id', memberId).order('sort_order').order('created_at'),
+    ])
+    setChannels(ch || [])
+    setColumns(cols || [])
+    const channelIds = (ch || []).map(c => c.id)
+    if (channelIds.length > 0) {
+      const [{ data: st }, { data: cl }] = await Promise.all([
+        supabase.from('video_status').select('*').in('channel_id', channelIds).eq('date', date),
+        supabase.from('video_cells').select('*').in('channel_id', channelIds).eq('date', date),
+      ])
+      const stMap = {}; (st||[]).forEach(s => { stMap[s.channel_id] = s.done })
+      const clMap = {}; (cl||[]).forEach(c => { clMap[`${c.channel_id}|${c.column_id}`] = c.value })
+      setStatus(stMap)
+      setCells(clMap)
+    } else {
+      setStatus({}); setCells({})
+    }
+    setLoading(false)
+  }, [memberId, date])
+
+  useEffect(() => { load() }, [load])
+
+  const addChannel = async () => {
+    if (!newChannel.trim()) return
+    const id = "ch"+Date.now()
+    await supabase.from('video_channels').insert({ id, member_id:memberId, name:newChannel.trim(), sort_order:channels.length })
+    setNewChannel("")
+    load()
+  }
+
+  const deleteChannel = async (id) => {
+    if (!confirm("Yeh channel delete karna confirm?")) return
+    await supabase.from('video_channels').delete().eq('id', id)
+    load()
+  }
+
+  const addColumn = async () => {
+    if (!newColumn.trim()) return
+    const id = "col"+Date.now()
+    await supabase.from('video_columns').insert({ id, member_id:memberId, name:newColumn.trim(), sort_order:columns.length })
+    setNewColumn("")
+    load()
+  }
+
+  const deleteColumn = async (id) => {
+    if (!confirm("Yeh column delete karna confirm? Saara data uska bhi jayega.")) return
+    await supabase.from('video_columns').delete().eq('id', id)
+    load()
+  }
+
+  const toggleStatus = async (channelId) => {
+    const newVal = !status[channelId]
+    setStatus(s => ({ ...s, [channelId]: newVal }))
+    await supabase.from('video_status').upsert({ channel_id:channelId, date, done:newVal }, { onConflict:'channel_id,date' })
+  }
+
+  const openCellEdit = (channelId, columnId) => {
+    const key = `${channelId}|${columnId}`
+    setEditingCell(key)
+    setCellDraft(cells[key] || "")
+  }
+
+  const saveCell = async (channelId, columnId) => {
+    const key = `${channelId}|${columnId}`
+    await supabase.from('video_cells').upsert({ channel_id:channelId, column_id:columnId, date, value:cellDraft }, { onConflict:'channel_id,column_id,date' })
+    setCells(c => ({ ...c, [key]: cellDraft }))
+    setEditingCell(null)
+  }
+
+  if (loading) return <p style={{ color:C.textMuted, fontSize:13 }}>Loading grid...</p>
+
+  return (
+    <div>
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap" }}>
+        <input type="date" value={date} onChange={e=>setDate(e.target.value)}
+          style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"7px 12px", color:C.text, fontSize:13 }} />
+        <span style={{ color:C.textMuted, fontSize:12 }}>Status har naye din fresh "Not Yet" se shuru hota hai</span>
+      </div>
+
+      <div style={{ overflowX:"auto", border:`1px solid ${C.border}`, borderRadius:10 }}>
+        <table style={{ borderCollapse:"collapse", width:"100%", fontSize:13 }}>
+          <thead>
+            <tr style={{ background:C.bg }}>
+              <th style={{ padding:"10px 14px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, minWidth:160 }}>Channel</th>
+              <th style={{ padding:"10px 14px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, minWidth:100 }}>Status</th>
+              {columns.map(col => (
+                <th key={col.id} style={{ padding:"10px 14px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, minWidth:170 }}>
+                  {col.name}
+                  <button onClick={()=>deleteColumn(col.id)} title="Delete column" style={{ marginLeft:6, background:"transparent", border:"none", color:C.danger, cursor:"pointer", fontSize:11 }}>✕</button>
+                </th>
+              ))}
+              <th style={{ padding:"8px 10px", borderBottom:`1px solid ${C.border}`, minWidth:140 }}>
+                <input value={newColumn} onChange={e=>setNewColumn(e.target.value)} placeholder="+ New column"
+                  onKeyDown={e=>e.key==="Enter" && addColumn()}
+                  style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"6px 8px", fontSize:12, boxSizing:"border-box", fontFamily:"inherit" }} />
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {channels.map(ch => (
+              <tr key={ch.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                <td style={{ padding:"10px 14px", color:C.text, fontWeight:500 }}>
+                  {ch.name}
+                  <button onClick={()=>deleteChannel(ch.id)} title="Delete channel" style={{ marginLeft:6, background:"transparent", border:"none", color:C.danger, cursor:"pointer", fontSize:11 }}>✕</button>
+                </td>
+                <td style={{ padding:"8px 14px", textAlign:"center" }}>
+                  <button onClick={()=>toggleStatus(ch.id)} style={{
+                    background: status[ch.id] ? C.successLight : C.dangerLight,
+                    color: status[ch.id] ? C.success : C.danger,
+                    border:"none", borderRadius:20, padding:"5px 14px", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit"
+                  }}>
+                    {status[ch.id] ? "✓ Done" : "Not Yet"}
+                  </button>
+                </td>
+                {columns.map(col => {
+                  const key = `${ch.id}|${col.id}`
+                  const isEditing = editingCell === key
+                  return (
+                    <td key={col.id} style={{ padding:"6px 8px" }}>
+                      {isEditing ? (
+                        <input autoFocus value={cellDraft} onChange={e=>setCellDraft(e.target.value)}
+                          onBlur={()=>saveCell(ch.id, col.id)}
+                          onKeyDown={e=>e.key==="Enter" && saveCell(ch.id, col.id)}
+                          style={{ width:"100%", background:C.surface, border:`1px solid ${C.primary}`, borderRadius:6, padding:"6px 8px", fontSize:13, boxSizing:"border-box", fontFamily:"inherit" }} />
+                      ) : (
+                        <div onClick={()=>openCellEdit(ch.id, col.id)} title="Click to edit"
+                          style={{ cursor:"pointer", minHeight:18, color: cells[key] ? C.text : C.textLight, padding:"6px 8px", borderRadius:6, wordBreak:"break-word" }}>
+                          {cells[key] || "—"}
+                        </div>
+                      )}
+                    </td>
+                  )
+                })}
+                <td></td>
+              </tr>
+            ))}
+            <tr>
+              <td style={{ padding:"10px 14px" }}>
+                <input value={newChannel} onChange={e=>setNewChannel(e.target.value)} placeholder="+ Add channel"
+                  onKeyDown={e=>e.key==="Enter" && addChannel()}
+                  style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 10px", fontSize:13, boxSizing:"border-box", fontFamily:"inherit" }} />
+              </td>
+              <td colSpan={columns.length+2}></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      {channels.length===0 && <p style={{ color:C.textMuted, fontSize:13, marginTop:10 }}>Koi channel nahi hai abhi. Sabse neeche wale box mein naam likh ke Enter dabao.</p>}
+    </div>
+  )
+}
+
 // ============ ADMIN DASHBOARD ============
 function AdminDashboard({ user, onLogout }) {
   const [tab, setTab] = useState("overview")
@@ -136,6 +305,7 @@ function AdminDashboard({ user, onLogout }) {
     { id:"tasks", label:"Tasks", icon:"✅" },
     { id:"attendance", label:"Attendance", icon:"🕐" },
     { id:"reports", label:"Reports", icon:"📋" },
+    { id:"videos", label:"Videos", icon:"🎬" },
   ]
 
   if (loading) return <Loader />
@@ -164,6 +334,7 @@ function AdminDashboard({ user, onLogout }) {
         {tab==="tasks" && <AdminTasks data={data} refresh={refresh} />}
         {tab==="attendance" && <AdminAttendance data={data} refresh={refresh} />}
         {tab==="reports" && <AdminReports data={data} user={user} refresh={refresh} />}
+        {tab==="videos" && <AdminVideos data={data} />}
       </div>
     </div>
   )
@@ -640,6 +811,23 @@ function AdminReports({ data, user, refresh }) {
   )
 }
 
+function AdminVideos({ data }) {
+  const [selected, setSelected] = useState(data.members[0]?.id || "")
+  if (data.members.length === 0) return <p style={{ color:C.textMuted, fontSize:14 }}>Koi member nahi hai abhi.</p>
+  return (
+    <div>
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20, flexWrap:"wrap" }}>
+        <h2 style={{ color:C.text, fontSize:20, fontWeight:700 }}>🎬 Videos Tracker</h2>
+        <select value={selected} onChange={e=>setSelected(e.target.value)}
+          style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"7px 12px", color:C.text, fontSize:13 }}>
+          {data.members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
+      </div>
+      {selected && <VideoGrid memberId={selected} />}
+    </div>
+  )
+}
+
 // ============ MEMBER DASHBOARD ============
 function MemberDashboard({ user, setUser, onLogout }) {
   const [tab, setTab] = useState("home")
@@ -670,6 +858,7 @@ function MemberDashboard({ user, setUser, onLogout }) {
     { id:"checkin", label:"Attendance", icon:"🕐" },
     { id:"tasks", label:"My Tasks", icon:"✅" },
     { id:"report", label:"Daily Report", icon:"📋" },
+    { id:"videos", label:"Today's Videos", icon:"🎬" },
   ]
 
   return (
@@ -697,6 +886,7 @@ function MemberDashboard({ user, setUser, onLogout }) {
         {tab==="checkin" && <MemberCheckin data={data} user={user} refresh={refresh} />}
         {tab==="tasks" && <MemberTasks data={data} user={user} refresh={refresh} />}
         {tab==="report" && <MemberReport data={data} user={user} refresh={refresh} />}
+        {tab==="videos" && <MemberVideos user={user} />}
       </div>
     </div>
   )
@@ -902,7 +1092,6 @@ function MemberReport({ data, user, refresh }) {
   const existing = data.reports[td]
   const [form, setForm] = useState(existing || { tasksCompleted:"", hoursWorked:"", blockers:"", notes:"" })
   const [submitted, setSubmitted] = useState(!!existing)
-  const [viewDate, setViewDate] = useState(td)
 
   const submitReport = async () => {
     if (!form.tasksCompleted||!form.hoursWorked) { alert("Tasks aur hours zaroori hain!"); return }
@@ -915,7 +1104,6 @@ function MemberReport({ data, user, refresh }) {
     refresh()
   }
 
-  const viewComments = data.reportComments[viewDate] || []
   const todayComments = data.reportComments[td] || []
 
   return (
@@ -978,6 +1166,16 @@ function MemberReport({ data, user, refresh }) {
           <button onClick={submitReport} style={{ background:C.primary, border:"none", color:"#fff", padding:"12px 28px", borderRadius:10, fontSize:14, fontWeight:600, cursor:"pointer" }}>Submit Report →</button>
         </div>
       )}
+    </div>
+  )
+}
+
+function MemberVideos({ user }) {
+  return (
+    <div>
+      <h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:4 }}>🎬 Today's Videos</h2>
+      <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>Apne channels ka daily video tracker — excel ki tarah edit karein</p>
+      <VideoGrid memberId={user.id} />
     </div>
   )
 }
