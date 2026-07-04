@@ -14,7 +14,7 @@ const C = {
   warning:"#f59e0b", warningLight:"#fef3c7",
   danger:"#ef4444", dangerLight:"#fee2e2",
   purple:"#8b5cf6", purpleLight:"#ede9fe",
-  orange:"#f97316",
+  orange:"#f97316", orangeLight:"#ffedd5",
 }
 
 const avatarColors = ["#6366f1","#10b981","#f59e0b","#ec4899","#8b5cf6","#ef4444","#14b8a6","#f97316"]
@@ -44,7 +44,14 @@ export default function App() {
       .maybeSingle()
     if (error) { setLoginError("Connection error: " + error.message); return }
     if (!data) { setLoginError("Email ya password galat hai!"); return }
-    const userData = { id: data.id, name: data.name, email: data.email, role: data.role, checkinTime: data.checkin_time, avatar: data.avatar || data.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase(), isAdmin: data.is_admin }
+    const userData = {
+      id: data.id, name: data.name, email: data.email, role: data.role,
+      checkinTime: data.checkin_time,
+      avatar: data.avatar || data.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase(),
+      isAdmin: data.is_admin,
+      isTeamLead: data.is_team_lead,
+      teamId: data.team_id
+    }
     localStorage.setItem("teamhub-user", JSON.stringify(userData))
     setUser(userData)
   }
@@ -78,19 +85,19 @@ function LoginScreen({ form, setForm, onLogin, error }) {
           </div>
           <p style={{ color:C.textMuted, fontSize:14 }}>Team management platform</p>
         </div>
-        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:28, boxShadow:"0 1px 3px rgba(0,0,0,0.04)" }}>
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:28 }}>
           <div style={{ marginBottom:14 }}>
             <label style={{ display:"block", color:C.text, fontSize:13, marginBottom:6, fontWeight:500 }}>Email</label>
             <input value={form.email} onChange={e => setForm(f=>({...f,email:e.target.value}))}
               onKeyDown={e => e.key==="Enter" && onLogin()}
-              style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box", fontFamily:"inherit" }}
+              style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", fontSize:14, boxSizing:"border-box" }}
               placeholder="Enter your email" />
           </div>
           <div style={{ marginBottom:18 }}>
             <label style={{ display:"block", color:C.text, fontSize:13, marginBottom:6, fontWeight:500 }}>Password</label>
             <input type="password" value={form.password} onChange={e => setForm(f=>({...f,password:e.target.value}))}
               onKeyDown={e => e.key==="Enter" && onLogin()}
-              style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", color:C.text, fontSize:14, outline:"none", boxSizing:"border-box", fontFamily:"inherit" }}
+              style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", fontSize:14, boxSizing:"border-box" }}
               placeholder="Enter your password" />
           </div>
           {error && <p style={{ color:C.danger, fontSize:13, marginBottom:12, background:C.dangerLight, padding:"8px 12px", borderRadius:6 }}>{error}</p>}
@@ -103,171 +110,151 @@ function LoginScreen({ form, setForm, onLogin, error }) {
   )
 }
 
-// ============ SHARED: VIDEO GRID (Excel-like) ============
-function VideoGrid({ memberId }) {
-  const [date, setDate] = useState(today())
-  const [channels, setChannels] = useState([])
-  const [columns, setColumns] = useState([])
-  const [status, setStatus] = useState({})
-  const [cells, setCells] = useState({})
+// ============ SHARED: TikTok Accounts Sheet ============
+function TikTokSheet({ teamId, canEdit }) {
+  const [accounts, setAccounts] = useState([])
   const [loading, setLoading] = useState(true)
-  const [newChannel, setNewChannel] = useState("")
-  const [newColumn, setNewColumn] = useState("")
-  const [editingCell, setEditingCell] = useState(null)
-  const [cellDraft, setCellDraft] = useState("")
+  const [form, setForm] = useState({ account_name:"", niche:"", tiktok_link:"", video_source:"" })
+  const [adding, setAdding] = useState(false)
+  const [editId, setEditId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data: ch }, { data: cols }] = await Promise.all([
-      supabase.from('video_channels').select('*').eq('member_id', memberId).order('sort_order').order('created_at'),
-      supabase.from('video_columns').select('*').eq('member_id', memberId).order('sort_order').order('created_at'),
-    ])
-    setChannels(ch || [])
-    setColumns(cols || [])
-    const channelIds = (ch || []).map(c => c.id)
-    if (channelIds.length > 0) {
-      const [{ data: st }, { data: cl }] = await Promise.all([
-        supabase.from('video_status').select('*').in('channel_id', channelIds).eq('date', date),
-        supabase.from('video_cells').select('*').in('channel_id', channelIds).eq('date', date),
-      ])
-      const stMap = {}; (st||[]).forEach(s => { stMap[s.channel_id] = s.done })
-      const clMap = {}; (cl||[]).forEach(c => { clMap[`${c.channel_id}|${c.column_id}`] = c.value })
-      setStatus(stMap)
-      setCells(clMap)
-    } else {
-      setStatus({}); setCells({})
-    }
+    const { data } = await supabase.from('tiktok_accounts').select('*').eq('team_id', teamId).order('created_at')
+    setAccounts(data || [])
     setLoading(false)
-  }, [memberId, date])
+  }, [teamId])
 
   useEffect(() => { load() }, [load])
 
-  const addChannel = async () => {
-    if (!newChannel.trim()) return
-    const id = "ch"+Date.now()
-    await supabase.from('video_channels').insert({ id, member_id:memberId, name:newChannel.trim(), sort_order:channels.length })
-    setNewChannel("")
+  const addAccount = async () => {
+    if (!form.account_name.trim()) { alert("Account name zaroori hai!"); return }
+    const id = "acc"+Date.now()
+    const { error } = await supabase.from('tiktok_accounts').insert({ id, team_id:teamId, ...form, status:'not_yet' })
+    if (error) { alert("Error: "+error.message); return }
+    setForm({ account_name:"", niche:"", tiktok_link:"", video_source:"" })
+    setAdding(false)
     load()
   }
 
-  const deleteChannel = async (id) => {
-    if (!confirm("Yeh channel delete karna confirm?")) return
-    await supabase.from('video_channels').delete().eq('id', id)
+  const startEdit = (acc) => {
+    setEditId(acc.id)
+    setEditForm({ account_name:acc.account_name, niche:acc.niche||"", tiktok_link:acc.tiktok_link||"", video_source:acc.video_source||"" })
+  }
+
+  const saveEdit = async () => {
+    if (!editForm.account_name.trim()) { alert("Account name zaroori hai!"); return }
+    await supabase.from('tiktok_accounts').update(editForm).eq('id', editId)
+    setEditId(null); setEditForm(null)
     load()
   }
 
-  const addColumn = async () => {
-    if (!newColumn.trim()) return
-    const id = "col"+Date.now()
-    await supabase.from('video_columns').insert({ id, member_id:memberId, name:newColumn.trim(), sort_order:columns.length })
-    setNewColumn("")
+  const deleteAccount = async (id) => {
+    if (!confirm("Delete this account?")) return
+    await supabase.from('tiktok_accounts').delete().eq('id', id)
     load()
   }
 
-  const deleteColumn = async (id) => {
-    if (!confirm("Yeh column delete karna confirm? Saara data uska bhi jayega.")) return
-    await supabase.from('video_columns').delete().eq('id', id)
-    load()
+  const toggleStatus = async (acc) => {
+    const newStatus = acc.status === 'done' ? 'not_yet' : 'done'
+    await supabase.from('tiktok_accounts').update({ status:newStatus }).eq('id', acc.id)
+    setAccounts(a => a.map(x => x.id===acc.id ? {...x, status:newStatus} : x))
   }
 
-  const toggleStatus = async (channelId) => {
-    const newVal = !status[channelId]
-    setStatus(s => ({ ...s, [channelId]: newVal }))
-    await supabase.from('video_status').upsert({ channel_id:channelId, date, done:newVal }, { onConflict:'channel_id,date' })
-  }
-
-  const openCellEdit = (channelId, columnId) => {
-    const key = `${channelId}|${columnId}`
-    setEditingCell(key)
-    setCellDraft(cells[key] || "")
-  }
-
-  const saveCell = async (channelId, columnId) => {
-    const key = `${channelId}|${columnId}`
-    await supabase.from('video_cells').upsert({ channel_id:channelId, column_id:columnId, date, value:cellDraft }, { onConflict:'channel_id,column_id,date' })
-    setCells(c => ({ ...c, [key]: cellDraft }))
-    setEditingCell(null)
-  }
-
-  if (loading) return <p style={{ color:C.textMuted, fontSize:13 }}>Loading grid...</p>
+  if (loading) return <p style={{ color:C.textMuted, fontSize:13 }}>Loading accounts...</p>
 
   return (
     <div>
-      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap" }}>
-        <input type="date" value={date} onChange={e=>setDate(e.target.value)}
-          style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"7px 12px", color:C.text, fontSize:13 }} />
-        <span style={{ color:C.textMuted, fontSize:12 }}>Status har naye din fresh "Not Yet" se shuru hota hai</span>
-      </div>
+      {canEdit && (
+        <div style={{ marginBottom:14 }}>
+          <button onClick={()=>setAdding(!adding)} style={{ background:C.primary, border:"none", color:"#fff", padding:"8px 18px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>
+            {adding ? "Cancel" : "+ Add Account"}
+          </button>
+        </div>
+      )}
+      {adding && canEdit && (
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:16, marginBottom:14 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+            <input value={form.account_name} onChange={e=>setForm(f=>({...f,account_name:e.target.value}))}
+              placeholder="Account Name (e.g. @fashion_hub)"
+              style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+            <input value={form.niche} onChange={e=>setForm(f=>({...f,niche:e.target.value}))}
+              placeholder="Niche (Fashion, Food, etc.)"
+              style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+            <input value={form.tiktok_link} onChange={e=>setForm(f=>({...f,tiktok_link:e.target.value}))}
+              placeholder="TikTok Link"
+              style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+            <input value={form.video_source} onChange={e=>setForm(f=>({...f,video_source:e.target.value}))}
+              placeholder="Video Source (Instagram, YouTube, Own)"
+              style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+          </div>
+          <button onClick={addAccount} style={{ background:C.success, border:"none", color:"#fff", padding:"8px 20px", borderRadius:6, fontSize:13, cursor:"pointer", fontWeight:600 }}>Save Account</button>
+        </div>
+      )}
 
-      <div style={{ overflowX:"auto", border:`1px solid ${C.border}`, borderRadius:10 }}>
-        <table style={{ borderCollapse:"collapse", width:"100%", fontSize:13 }}>
-          <thead>
-            <tr style={{ background:C.bg }}>
-              <th style={{ padding:"10px 14px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, minWidth:160 }}>Channel</th>
-              <th style={{ padding:"10px 14px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, minWidth:100 }}>Status</th>
-              {columns.map(col => (
-                <th key={col.id} style={{ padding:"10px 14px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, minWidth:170 }}>
-                  {col.name}
-                  <button onClick={()=>deleteColumn(col.id)} title="Delete column" style={{ marginLeft:6, background:"transparent", border:"none", color:C.danger, cursor:"pointer", fontSize:11 }}>✕</button>
-                </th>
-              ))}
-              <th style={{ padding:"8px 10px", borderBottom:`1px solid ${C.border}`, minWidth:140 }}>
-                <input value={newColumn} onChange={e=>setNewColumn(e.target.value)} placeholder="+ New column"
-                  onKeyDown={e=>e.key==="Enter" && addColumn()}
-                  style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"6px 8px", fontSize:12, boxSizing:"border-box", fontFamily:"inherit" }} />
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {channels.map(ch => (
-              <tr key={ch.id} style={{ borderBottom:`1px solid ${C.border}` }}>
-                <td style={{ padding:"10px 14px", color:C.text, fontWeight:500 }}>
-                  {ch.name}
-                  <button onClick={()=>deleteChannel(ch.id)} title="Delete channel" style={{ marginLeft:6, background:"transparent", border:"none", color:C.danger, cursor:"pointer", fontSize:11 }}>✕</button>
-                </td>
-                <td style={{ padding:"8px 14px", textAlign:"center" }}>
-                  <button onClick={()=>toggleStatus(ch.id)} style={{
-                    background: status[ch.id] ? C.successLight : C.dangerLight,
-                    color: status[ch.id] ? C.success : C.danger,
-                    border:"none", borderRadius:20, padding:"5px 14px", fontSize:12, fontWeight:600, cursor:"pointer", fontFamily:"inherit"
-                  }}>
-                    {status[ch.id] ? "✓ Done" : "Not Yet"}
-                  </button>
-                </td>
-                {columns.map(col => {
-                  const key = `${ch.id}|${col.id}`
-                  const isEditing = editingCell === key
-                  return (
-                    <td key={col.id} style={{ padding:"6px 8px" }}>
-                      {isEditing ? (
-                        <input autoFocus value={cellDraft} onChange={e=>setCellDraft(e.target.value)}
-                          onBlur={()=>saveCell(ch.id, col.id)}
-                          onKeyDown={e=>e.key==="Enter" && saveCell(ch.id, col.id)}
-                          style={{ width:"100%", background:C.surface, border:`1px solid ${C.primary}`, borderRadius:6, padding:"6px 8px", fontSize:13, boxSizing:"border-box", fontFamily:"inherit" }} />
-                      ) : (
-                        <div onClick={()=>openCellEdit(ch.id, col.id)} title="Click to edit"
-                          style={{ cursor:"pointer", minHeight:18, color: cells[key] ? C.text : C.textLight, padding:"6px 8px", borderRadius:6, wordBreak:"break-word" }}>
-                          {cells[key] || "—"}
-                        </div>
-                      )}
-                    </td>
-                  )
-                })}
-                <td></td>
+      {accounts.length === 0 ? (
+        <div style={{ textAlign:"center", padding:30, background:C.surface, border:`1px dashed ${C.border}`, borderRadius:10 }}>
+          <p style={{ color:C.textMuted, fontSize:14 }}>Koi TikTok account nahi hai abhi.</p>
+        </div>
+      ) : (
+        <div style={{ overflowX:"auto", border:`1px solid ${C.border}`, borderRadius:10 }}>
+          <table style={{ borderCollapse:"collapse", width:"100%", fontSize:13, minWidth:800 }}>
+            <thead>
+              <tr style={{ background:C.bg }}>
+                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>#</th>
+                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Account Name</th>
+                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Niche</th>
+                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>TikTok Link</th>
+                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Video Source</th>
+                <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Status</th>
+                {canEdit && <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Actions</th>}
               </tr>
-            ))}
-            <tr>
-              <td style={{ padding:"10px 14px" }}>
-                <input value={newChannel} onChange={e=>setNewChannel(e.target.value)} placeholder="+ Add channel"
-                  onKeyDown={e=>e.key==="Enter" && addChannel()}
-                  style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 10px", fontSize:13, boxSizing:"border-box", fontFamily:"inherit" }} />
-              </td>
-              <td colSpan={columns.length+2}></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      {channels.length===0 && <p style={{ color:C.textMuted, fontSize:13, marginTop:10 }}>Koi channel nahi hai abhi. Sabse neeche wale box mein naam likh ke Enter dabao.</p>}
+            </thead>
+            <tbody>
+              {accounts.map((acc, idx) => editId === acc.id ? (
+                <tr key={acc.id} style={{ borderBottom:`1px solid ${C.border}`, background:C.primaryLight }}>
+                  <td style={{ padding:"8px 12px", color:C.textMuted }}>{idx+1}</td>
+                  <td style={{ padding:"6px 8px" }}><input value={editForm.account_name} onChange={e=>setEditForm(f=>({...f,account_name:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
+                  <td style={{ padding:"6px 8px" }}><input value={editForm.niche} onChange={e=>setEditForm(f=>({...f,niche:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
+                  <td style={{ padding:"6px 8px" }}><input value={editForm.tiktok_link} onChange={e=>setEditForm(f=>({...f,tiktok_link:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
+                  <td style={{ padding:"6px 8px" }}><input value={editForm.video_source} onChange={e=>setEditForm(f=>({...f,video_source:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
+                  <td style={{ padding:"8px", textAlign:"center", color:C.textMuted, fontSize:11 }}>—</td>
+                  <td style={{ padding:"8px", textAlign:"center" }}>
+                    <button onClick={saveEdit} style={{ background:C.success, border:"none", color:"#fff", fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer", marginRight:4 }}>Save</button>
+                    <button onClick={()=>{setEditId(null);setEditForm(null)}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer" }}>Cancel</button>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={acc.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                  <td style={{ padding:"10px 12px", color:C.textMuted }}>{idx+1}</td>
+                  <td style={{ padding:"10px 12px", color:C.text, fontWeight:500 }}>{acc.account_name}</td>
+                  <td style={{ padding:"10px 12px", color:C.text }}>{acc.niche || "—"}</td>
+                  <td style={{ padding:"10px 12px" }}>
+                    {acc.tiktok_link ? <a href={acc.tiktok_link} target="_blank" rel="noopener noreferrer" style={{ color:C.primary, textDecoration:"none", fontSize:12 }}>Open →</a> : <span style={{ color:C.textLight }}>—</span>}
+                  </td>
+                  <td style={{ padding:"10px 12px", color:C.text }}>{acc.video_source || "—"}</td>
+                  <td style={{ padding:"8px", textAlign:"center" }}>
+                    <button onClick={()=>toggleStatus(acc)} style={{
+                      background: acc.status === 'done' ? C.successLight : C.dangerLight,
+                      color: acc.status === 'done' ? C.success : C.danger,
+                      border:"none", borderRadius:20, padding:"5px 14px", fontSize:12, fontWeight:600, cursor:"pointer"
+                    }}>
+                      {acc.status === 'done' ? "✓ Done" : "Not Yet"}
+                    </button>
+                  </td>
+                  {canEdit && (
+                    <td style={{ padding:"8px", textAlign:"center" }}>
+                      <button onClick={()=>startEdit(acc)} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer", marginRight:4, fontWeight:600 }}>Edit</button>
+                      <button onClick={()=>deleteAccount(acc.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer" }}>✕</button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
@@ -275,25 +262,25 @@ function VideoGrid({ memberId }) {
 // ============ ADMIN DASHBOARD ============
 function AdminDashboard({ user, onLogout }) {
   const [tab, setTab] = useState("overview")
-  const [data, setData] = useState({ members:[], tasks:[], attendance:{}, reports:{}, stats:{}, comments:{}, reportComments:{} })
+  const [data, setData] = useState({ members:[], tasks:[], attendance:{}, reports:{}, stats:{}, reportComments:{}, teams:[], accounts:[] })
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
-    const [{ data:members }, { data:tasks }, { data:att }, { data:reps }, { data:stats }, { data:comments }, { data:reportComments }] = await Promise.all([
+    const [{ data:members }, { data:tasks }, { data:att }, { data:reps }, { data:stats }, { data:reportComments }, { data:teams }, { data:accounts }] = await Promise.all([
       supabase.from('members').select('*').eq('is_admin', false).order('created_at'),
       supabase.from('tasks').select('*').order('created_at'),
       supabase.from('attendance').select('*'),
       supabase.from('reports').select('*'),
       supabase.from('member_stats').select('*'),
-      supabase.from('task_comments').select('*').order('created_at'),
       supabase.from('report_comments').select('*').order('created_at'),
+      supabase.from('teams').select('*').order('created_at'),
+      supabase.from('tiktok_accounts').select('*'),
     ])
-    const attMap = {}; (att||[]).forEach(a=>{ if(!attMap[a.date]) attMap[a.date]={}; attMap[a.date][a.member_id]={checkIn:a.check_in,checkOut:a.check_out,status:a.status,reason:a.reason,lateBy:a.late_by} })
-    const repMap = {}; (reps||[]).forEach(r=>{ if(!repMap[r.date]) repMap[r.date]={}; repMap[r.date][r.member_id]={tasksCompleted:r.tasks_completed,hoursWorked:r.hours_worked,blockers:r.blockers,notes:r.notes,submittedAt:r.submitted_at} })
+    const attMap = {}; (att||[]).forEach(a=>{ if(!attMap[a.date]) attMap[a.date]={}; attMap[a.date][a.member_id]={checkIn:a.check_in,checkOut:a.check_out,status:a.status,reason:a.reason} })
+    const repMap = {}; (reps||[]).forEach(r=>{ if(!repMap[r.date]) repMap[r.date]={}; repMap[r.date][r.member_id]={tasksCompleted:r.tasks_completed,hoursWorked:r.hours_worked,blockers:r.blockers,notes:r.notes} })
     const statsMap = {}; (stats||[]).forEach(s=>{ statsMap[s.member_id]={lateCount:s.late_count,strikes:s.strikes} })
-    const cmtMap = {}; (comments||[]).forEach(c=>{ if(!cmtMap[c.task_id]) cmtMap[c.task_id]=[]; cmtMap[c.task_id].push({author:c.author,text:c.text,time:c.time}) })
     const rcMap = {}; (reportComments||[]).forEach(rc=>{ const k = `${rc.report_member_id}|${rc.report_date}`; if(!rcMap[k]) rcMap[k]=[]; rcMap[k].push({id:rc.id, author:rc.author, text:rc.text, time:new Date(rc.created_at).toLocaleString()}) })
-    setData({ members:members||[], tasks:tasks||[], attendance:attMap, reports:repMap, stats:statsMap, comments:cmtMap, reportComments:rcMap })
+    setData({ members:members||[], tasks:tasks||[], attendance:attMap, reports:repMap, stats:statsMap, reportComments:rcMap, teams:teams||[], accounts:accounts||[] })
     setLoading(false)
   }, [])
 
@@ -301,22 +288,22 @@ function AdminDashboard({ user, onLogout }) {
 
   const tabs = [
     { id:"overview", label:"Overview", icon:"📊" },
-    { id:"members", label:"Members", icon:"👥" },
+    { id:"teams", label:"Teams", icon:"👥" },
+    { id:"members", label:"Members", icon:"👤" },
     { id:"tasks", label:"Tasks", icon:"✅" },
     { id:"attendance", label:"Attendance", icon:"🕐" },
     { id:"reports", label:"Reports", icon:"📋" },
-    { id:"videos", label:"Videos", icon:"🎬" },
   ]
 
   if (loading) return <Loader />
 
   return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column" }}>
-      <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 24px", display:"flex", alignItems:"center", justifyContent:"space-between", height:60, flexShrink:0 }}>
+      <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 24px", display:"flex", alignItems:"center", justifyContent:"space-between", height:60 }}>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
           <div style={{ width:32, height:32, background:C.primary, borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, color:"#fff" }}>⚡</div>
           <span style={{ color:C.text, fontWeight:700, fontSize:17 }}>TeamHub</span>
-          <span style={{ background:C.primaryLight, color:C.primary, fontSize:11, padding:"3px 10px", borderRadius:20, marginLeft:4, fontWeight:600 }}>Admin</span>
+          <span style={{ background:C.primaryLight, color:C.primary, fontSize:11, padding:"3px 10px", borderRadius:20, marginLeft:4, fontWeight:600 }}>Super Admin</span>
         </div>
         <button onClick={onLogout} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, fontSize:13, padding:"7px 16px", borderRadius:8, cursor:"pointer" }}>Logout</button>
       </div>
@@ -330,11 +317,11 @@ function AdminDashboard({ user, onLogout }) {
       </div>
       <div style={{ flex:1, padding:24, overflowY:"auto" }}>
         {tab==="overview" && <AdminOverview data={data} />}
+        {tab==="teams" && <AdminTeams data={data} refresh={refresh} />}
         {tab==="members" && <AdminMembers data={data} refresh={refresh} />}
         {tab==="tasks" && <AdminTasks data={data} refresh={refresh} />}
         {tab==="attendance" && <AdminAttendance data={data} refresh={refresh} />}
         {tab==="reports" && <AdminReports data={data} user={user} refresh={refresh} />}
-        {tab==="videos" && <AdminVideos data={data} />}
       </div>
     </div>
   )
@@ -346,21 +333,26 @@ function AdminOverview({ data }) {
   const ontime = Object.values(att).filter(a=>a.status==="ontime").length
   const late = Object.values(att).filter(a=>a.status==="late").length
   const absent = data.members.filter(m=>!att[m.id]).length
-  const doneTasks = data.tasks.filter(t=>t.status==="done").length
-  const overdueTasks = data.tasks.filter(t=>t.status!=="done" && isPastDate(t.deadline)).length
+
+  // Niche breakdown
+  const niches = {}
+  data.accounts.forEach(a => {
+    const n = a.niche || "Uncategorized"
+    niches[n] = (niches[n]||0)+1
+  })
 
   const cards = [
-    { label:"Total Members", value: data.members.length, color:C.primary },
+    { label:"Total Teams", value: data.teams.length, color:C.primary },
+    { label:"Total Members", value: data.members.length, color:C.purple },
+    { label:"Total TikTok Accounts", value: data.accounts.length, color:C.orange },
     { label:"On Time Today", value: ontime, color:C.success },
     { label:"Late Today", value: late, color:C.warning },
     { label:"Absent Today", value: absent, color:C.danger },
-    { label:"Tasks Done", value: doneTasks, color:C.purple },
-    { label:"Overdue", value: overdueTasks, color:C.orange },
   ]
 
   return (
     <div>
-      <h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:6 }}>Today's Overview</h2>
+      <h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:6 }}>Super Admin Overview</h2>
       <p style={{ color:C.textMuted, fontSize:13, marginBottom:24 }}>{td}</p>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))", gap:14, marginBottom:28 }}>
         {cards.map(c => (
@@ -370,39 +362,210 @@ function AdminOverview({ data }) {
           </div>
         ))}
       </div>
-      <h3 style={{ color:C.text, fontSize:14, fontWeight:600, marginBottom:14, textTransform:"uppercase", letterSpacing:"0.05em" }}>Members Status</h3>
-      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-        {data.members.map(m => {
-          const a = att[m.id]
-          const lc = data.stats[m.id]?.lateCount || 0
-          const strikes = data.stats[m.id]?.strikes || 0
+
+      <h3 style={{ color:C.text, fontSize:14, fontWeight:600, marginBottom:14, textTransform:"uppercase", letterSpacing:"0.05em" }}>Teams Breakdown</h3>
+      <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:24 }}>
+        {data.teams.length === 0 ? (
+          <div style={{ background:C.surface, border:`1px dashed ${C.border}`, borderRadius:10, padding:20, textAlign:"center" }}>
+            <p style={{ color:C.textMuted, fontSize:13 }}>Koi team nahi hai abhi. "Teams" tab pe ja ke banao.</p>
+          </div>
+        ) : data.teams.map(t => {
+          const teamMembers = data.members.filter(m => m.team_id === t.id)
+          const teamAccounts = data.accounts.filter(a => a.team_id === t.id)
+          const doneCount = teamAccounts.filter(a => a.status === 'done').length
+          const lead = data.members.find(m => m.id === t.team_lead_id)
           return (
-            <div key={m.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 16px", display:"flex", alignItems:"center", gap:14 }}>
-              <div style={{ width:38, height:38, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:600, color:"#fff", flexShrink:0 }}>{m.avatar}</div>
-              <div style={{ flex:1 }}>
-                <p style={{ color:C.text, fontSize:14, fontWeight:600 }}>{m.name}</p>
-                <p style={{ color:C.textMuted, fontSize:12 }}>{m.role}</p>
-              </div>
-              <div style={{ textAlign:"right" }}>
-                {a ? (
-                  <span style={{ background: a.status==="ontime"?C.successLight:C.warningLight, color:a.status==="ontime"?C.success:C.warning, fontSize:12, padding:"4px 10px", borderRadius:20, fontWeight:600 }}>
-                    {a.status==="ontime"?"✓ On Time":"⚠ Late "+a.checkIn}
-                  </span>
-                ) : (
-                  <span style={{ background:C.dangerLight, color:C.danger, fontSize:12, padding:"4px 10px", borderRadius:20, fontWeight:600 }}>✗ Absent</span>
-                )}
-                {(lc>0 || strikes>0) && <p style={{ color:C.textMuted, fontSize:11, marginTop:4 }}>Late: {lc} · Strikes: {strikes}</p>}
+            <div key={t.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 18px" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+                <div style={{ width:40, height:40, borderRadius:10, background:getColor(t.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, color:"#fff", fontWeight:700 }}>👥</div>
+                <div style={{ flex:1 }}>
+                  <p style={{ color:C.text, fontSize:14, fontWeight:600 }}>{t.name}</p>
+                  <p style={{ color:C.textMuted, fontSize:12 }}>
+                    👑 {lead?.name || "No Lead"} · 👤 {teamMembers.length} members · 📊 {teamAccounts.length} accounts ({doneCount} done)
+                  </p>
+                </div>
               </div>
             </div>
           )
         })}
+      </div>
+
+      {Object.keys(niches).length > 0 && (
+        <>
+          <h3 style={{ color:C.text, fontSize:14, fontWeight:600, marginBottom:14, textTransform:"uppercase", letterSpacing:"0.05em" }}>Niche Breakdown</h3>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:10 }}>
+            {Object.entries(niches).sort((a,b)=>b[1]-a[1]).map(([niche, count]) => (
+              <div key={niche} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"12px 14px" }}>
+                <p style={{ color:C.text, fontSize:14, fontWeight:600 }}>{niche}</p>
+                <p style={{ color:C.textMuted, fontSize:12 }}>{count} accounts</p>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function AdminTeams({ data, refresh }) {
+  const [form, setForm] = useState({ name:"", description:"", team_lead_id:"" })
+  const [adding, setAdding] = useState(false)
+  const [selectedTeam, setSelectedTeam] = useState(null)
+  const [editId, setEditId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
+
+  const addTeam = async () => {
+    if (!form.name.trim()) { alert("Team name zaroori hai!"); return }
+    const id = "team"+Date.now()
+    const { error } = await supabase.from('teams').insert({ id, name:form.name, description:form.description, team_lead_id:form.team_lead_id||null })
+    if (error) { alert("Error: "+error.message); return }
+    if (form.team_lead_id) {
+      await supabase.from('members').update({ is_team_lead:true, team_id:id }).eq('id', form.team_lead_id)
+    }
+    setForm({ name:"", description:"", team_lead_id:"" })
+    setAdding(false)
+    refresh()
+  }
+
+  const startEdit = (t) => {
+    setEditId(t.id)
+    setEditForm({ name:t.name, description:t.description||"", team_lead_id:t.team_lead_id||"" })
+  }
+
+  const saveEdit = async () => {
+    if (!editForm.name.trim()) { alert("Name zaroori hai!"); return }
+    await supabase.from('teams').update({ name:editForm.name, description:editForm.description, team_lead_id:editForm.team_lead_id||null }).eq('id', editId)
+    // Update lead flag
+    if (editForm.team_lead_id) {
+      await supabase.from('members').update({ is_team_lead:true, team_id:editId }).eq('id', editForm.team_lead_id)
+    }
+    setEditId(null); setEditForm(null)
+    refresh()
+  }
+
+  const deleteTeam = async (id) => {
+    if (!confirm("Team delete karein? Members reh jayenge lekin team se remove ho jayenge.")) return
+    await supabase.from('members').update({ team_id:null, is_team_lead:false }).eq('team_id', id)
+    await supabase.from('teams').delete().eq('id', id)
+    refresh()
+  }
+
+  if (selectedTeam) {
+    const team = data.teams.find(t=>t.id===selectedTeam)
+    const teamMembers = data.members.filter(m => m.team_id === selectedTeam)
+    const lead = data.members.find(m => m.id === team?.team_lead_id)
+    return (
+      <div>
+        <button onClick={()=>setSelectedTeam(null)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"6px 14px", borderRadius:8, fontSize:12, cursor:"pointer", marginBottom:16 }}>← Back to Teams</button>
+        <h2 style={{ color:C.text, fontSize:22, fontWeight:700, marginBottom:6 }}>{team?.name}</h2>
+        <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{team?.description || "—"}</p>
+        
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:12, marginBottom:24 }}>
+          <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:16 }}>
+            <p style={{ color:C.textMuted, fontSize:12 }}>Team Lead</p>
+            <p style={{ color:C.text, fontSize:16, fontWeight:600 }}>👑 {lead?.name || "No Lead Assigned"}</p>
+          </div>
+          <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:16 }}>
+            <p style={{ color:C.textMuted, fontSize:12 }}>Members</p>
+            <p style={{ color:C.text, fontSize:16, fontWeight:600 }}>👤 {teamMembers.length}</p>
+          </div>
+        </div>
+
+        <h3 style={{ color:C.text, fontSize:16, fontWeight:600, marginBottom:12 }}>Team Members</h3>
+        <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:24 }}>
+          {teamMembers.length === 0 ? (
+            <p style={{ color:C.textMuted, fontSize:13 }}>Koi member is team mein nahi hai.</p>
+          ) : teamMembers.map(m => (
+            <div key={m.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", display:"flex", alignItems:"center", gap:12 }}>
+              <div style={{ width:32, height:32, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
+              <div style={{ flex:1 }}>
+                <p style={{ color:C.text, fontSize:13, fontWeight:600 }}>{m.name} {m.is_team_lead && "👑"}</p>
+                <p style={{ color:C.textMuted, fontSize:11 }}>{m.role}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <h3 style={{ color:C.text, fontSize:16, fontWeight:600, marginBottom:12 }}>📊 TikTok Accounts Sheet</h3>
+        <TikTokSheet teamId={selectedTeam} canEdit={true} />
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <h2 style={{ color:C.text, fontSize:20, fontWeight:700 }}>Teams ({data.teams.length})</h2>
+        <button onClick={()=>setAdding(!adding)} style={{ background:C.primary, border:"none", color:"#fff", padding:"9px 20px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>
+          {adding ? "Cancel" : "+ Add Team"}
+        </button>
+      </div>
+
+      {adding && (
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:20, marginBottom:20 }}>
+          <div style={{ marginBottom:10 }}>
+            <label style={{ color:C.text, fontSize:12, fontWeight:500 }}>Team Name *</label>
+            <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Team Alpha"
+              style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box", marginTop:4 }} />
+          </div>
+          <div style={{ marginBottom:10 }}>
+            <label style={{ color:C.text, fontSize:12, fontWeight:500 }}>Description</label>
+            <input value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Team ke bare mein"
+              style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box", marginTop:4 }} />
+          </div>
+          <div style={{ marginBottom:14 }}>
+            <label style={{ color:C.text, fontSize:12, fontWeight:500 }}>Team Lead (optional)</label>
+            <select value={form.team_lead_id} onChange={e=>setForm(f=>({...f,team_lead_id:e.target.value}))}
+              style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box", marginTop:4 }}>
+              <option value="">-- No Lead --</option>
+              {data.members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </div>
+          <button onClick={addTeam} style={{ background:C.primary, border:"none", color:"#fff", padding:"9px 20px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>Create Team</button>
+        </div>
+      )}
+
+      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+        {data.teams.map(t => editId === t.id ? (
+          <div key={t.id} style={{ background:C.surface, border:`2px solid ${C.primary}`, borderRadius:12, padding:16 }}>
+            <input value={editForm.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} placeholder="Name"
+              style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:8 }} />
+            <input value={editForm.description} onChange={e=>setEditForm(f=>({...f,description:e.target.value}))} placeholder="Description"
+              style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:8 }} />
+            <select value={editForm.team_lead_id} onChange={e=>setEditForm(f=>({...f,team_lead_id:e.target.value}))}
+              style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }}>
+              <option value="">-- No Lead --</option>
+              {data.members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <button onClick={saveEdit} style={{ background:C.success, border:"none", color:"#fff", padding:"7px 16px", borderRadius:6, fontSize:12, cursor:"pointer", marginRight:6, fontWeight:600 }}>Save</button>
+            <button onClick={()=>{setEditId(null);setEditForm(null)}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"7px 16px", borderRadius:6, fontSize:12, cursor:"pointer" }}>Cancel</button>
+          </div>
+        ) : (
+          <div key={t.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 18px", display:"flex", alignItems:"center", gap:14 }}>
+            <div style={{ width:44, height:44, borderRadius:10, background:getColor(t.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, color:"#fff" }}>👥</div>
+            <div style={{ flex:1, cursor:"pointer" }} onClick={()=>setSelectedTeam(t.id)}>
+              <p style={{ color:C.text, fontSize:15, fontWeight:600 }}>{t.name}</p>
+              <p style={{ color:C.textMuted, fontSize:12 }}>
+                {t.description || "No description"} · 👤 {data.members.filter(m=>m.team_id===t.id).length} · 📊 {data.accounts.filter(a=>a.team_id===t.id).length}
+              </p>
+            </div>
+            <button onClick={()=>setSelectedTeam(t.id)} style={{ background:C.primaryLight, border:"none", color:C.primary, padding:"7px 14px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>Open →</button>
+            <button onClick={()=>startEdit(t)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"7px 12px", borderRadius:6, fontSize:12, cursor:"pointer" }}>Edit</button>
+            <button onClick={()=>deleteTeam(t.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, padding:"7px 12px", borderRadius:6, fontSize:12, cursor:"pointer" }}>✕</button>
+          </div>
+        ))}
+        {data.teams.length === 0 && !adding && (
+          <div style={{ background:C.surface, border:`1px dashed ${C.border}`, borderRadius:12, padding:30, textAlign:"center" }}>
+            <p style={{ color:C.textMuted, fontSize:14 }}>Koi team nahi hai. "+ Add Team" click karke shuru karo.</p>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 function AdminMembers({ data, refresh }) {
-  const [form, setForm] = useState({ name:"", email:"", password:"", role:"", checkin_time:"09:00" })
+  const [form, setForm] = useState({ name:"", email:"", password:"", role:"", checkin_time:"09:00", team_id:"" })
   const [adding, setAdding] = useState(false)
   const [credShow, setCredShow] = useState(null)
   const [editId, setEditId] = useState(null)
@@ -415,39 +578,37 @@ function AdminMembers({ data, refresh }) {
     const password = form.password || genPassword()
     const id = "m"+Date.now()
     const avatar = form.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()
-    const { error } = await supabase.from('members').insert({ id, name:form.name, email:form.email.toLowerCase(), password, role:form.role, checkin_time:form.checkin_time, avatar, is_admin:false })
+    const { error } = await supabase.from('members').insert({
+      id, name:form.name, email:form.email.toLowerCase(), password,
+      role:form.role, checkin_time:form.checkin_time, avatar,
+      is_admin:false, is_team_lead:false, team_id:form.team_id||null
+    })
     if (error) { alert("Error: " + error.message); return }
     await supabase.from('member_stats').insert({ member_id:id, late_count:0, strikes:0 })
     setCredShow({ email:form.email, password, name:form.name })
-    setForm({ name:"", email:"", password:"", role:"", checkin_time:"09:00" })
+    setForm({ name:"", email:"", password:"", role:"", checkin_time:"09:00", team_id:"" })
     setAdding(false)
     refresh()
   }
 
   const startEdit = (m) => {
     setEditId(m.id)
-    setEditForm({ name:m.name, email:m.email, password:m.password, role:m.role, checkin_time:m.checkin_time })
+    setEditForm({ name:m.name, email:m.email, password:m.password, role:m.role, checkin_time:m.checkin_time, team_id:m.team_id||"" })
   }
 
   const saveEdit = async () => {
     if (!editForm.name||!editForm.email||!editForm.role) { alert("Sab fields zaroori hain!"); return }
     const avatar = editForm.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()
-    const { error } = await supabase.from('members').update({ 
-      name:editForm.name, 
-      email:editForm.email.toLowerCase(), 
-      password:editForm.password, 
-      role:editForm.role, 
-      checkin_time:editForm.checkin_time,
-      avatar
+    await supabase.from('members').update({
+      name:editForm.name, email:editForm.email.toLowerCase(),
+      password:editForm.password, role:editForm.role,
+      checkin_time:editForm.checkin_time, avatar,
+      team_id:editForm.team_id||null
     }).eq('id', editId)
-    if (error) { alert("Error: " + error.message); return }
-    setEditId(null)
-    setEditForm(null)
+    setEditId(null); setEditForm(null)
     refresh()
-    alert("Member update ho gaya!")
+    alert("Member updated!")
   }
-
-  const cancelEdit = () => { setEditId(null); setEditForm(null) }
 
   const deleteMember = async (id) => {
     if (!confirm("Delete this member?")) return
@@ -466,7 +627,7 @@ function AdminMembers({ data, refresh }) {
       {credShow && (
         <div style={{ background:C.successLight, border:`1px solid ${C.success}`, borderRadius:12, padding:16, marginBottom:16 }}>
           <p style={{ color:C.success, fontWeight:600, fontSize:14, marginBottom:8 }}>✓ Member added! Credentials for {credShow.name}:</p>
-          <div style={{ background:"#fff", borderRadius:8, padding:"10px 14px", fontFamily:"ui-monospace, monospace", fontSize:13, color:C.text }}>
+          <div style={{ background:"#fff", borderRadius:8, padding:"10px 14px", fontFamily:"monospace", fontSize:13 }}>
             <div>Email: <strong>{credShow.email}</strong></div>
             <div>Password: <strong>{credShow.password}</strong></div>
           </div>
@@ -478,16 +639,26 @@ function AdminMembers({ data, refresh }) {
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
             {[["name","Full Name"],["email","Email"],["password","Password (optional)"],["role","Role / Designation"]].map(([k,ph])=>(
               <div key={k}>
-                <label style={{ color:C.text, fontSize:12, display:"block", marginBottom:4, fontWeight:500 }}>{ph}</label>
+                <label style={{ color:C.text, fontSize:12, fontWeight:500 }}>{ph}</label>
                 <input value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))}
-                  style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", color:C.text, fontSize:13, boxSizing:"border-box" }} placeholder={ph} />
+                  style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box", marginTop:4 }} placeholder={ph} />
               </div>
             ))}
           </div>
-          <div style={{ marginBottom:14 }}>
-            <label style={{ color:C.text, fontSize:12, display:"block", marginBottom:4, fontWeight:500 }}>Check-in Time</label>
-            <input type="time" value={form.checkin_time} onChange={e=>setForm(f=>({...f,checkin_time:e.target.value}))}
-              style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", color:C.text, fontSize:13 }} />
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
+            <div>
+              <label style={{ color:C.text, fontSize:12, fontWeight:500 }}>Check-in Time</label>
+              <input type="time" value={form.checkin_time} onChange={e=>setForm(f=>({...f,checkin_time:e.target.value}))}
+                style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box", marginTop:4 }} />
+            </div>
+            <div>
+              <label style={{ color:C.text, fontSize:12, fontWeight:500 }}>Team</label>
+              <select value={form.team_id} onChange={e=>setForm(f=>({...f,team_id:e.target.value}))}
+                style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box", marginTop:4 }}>
+                <option value="">-- No Team --</option>
+                {data.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </div>
           </div>
           <button onClick={addMember} style={{ background:C.primary, border:"none", color:"#fff", padding:"10px 24px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>Save Member</button>
         </div>
@@ -497,46 +668,34 @@ function AdminMembers({ data, refresh }) {
           <div key={m.id} style={{ background:C.surface, border:`2px solid ${C.primary}`, borderRadius:12, padding:18 }}>
             <p style={{ color:C.primary, fontSize:13, fontWeight:600, marginBottom:12 }}>✏️ Editing: {m.name}</p>
             <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
-              <div>
-                <label style={{ color:C.textMuted, fontSize:11, display:"block", marginBottom:3, fontWeight:500 }}>Name</label>
-                <input value={editForm.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} placeholder="Name"
-                  style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
-              </div>
-              <div>
-                <label style={{ color:C.textMuted, fontSize:11, display:"block", marginBottom:3, fontWeight:500 }}>Email</label>
-                <input value={editForm.email} onChange={e=>setEditForm(f=>({...f,email:e.target.value}))} placeholder="Email"
-                  style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
-              </div>
-              <div>
-                <label style={{ color:C.textMuted, fontSize:11, display:"block", marginBottom:3, fontWeight:500 }}>Password</label>
-                <input value={editForm.password} onChange={e=>setEditForm(f=>({...f,password:e.target.value}))} placeholder="Password"
-                  style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
-              </div>
-              <div>
-                <label style={{ color:C.textMuted, fontSize:11, display:"block", marginBottom:3, fontWeight:500 }}>Role</label>
-                <input value={editForm.role} onChange={e=>setEditForm(f=>({...f,role:e.target.value}))} placeholder="Role"
-                  style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
-              </div>
-            </div>
-            <div style={{ marginBottom:14 }}>
-              <label style={{ color:C.textMuted, fontSize:11, display:"block", marginBottom:3, fontWeight:500 }}>Check-in Time</label>
+              <input value={editForm.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} placeholder="Name"
+                style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+              <input value={editForm.email} onChange={e=>setEditForm(f=>({...f,email:e.target.value}))} placeholder="Email"
+                style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+              <input value={editForm.password} onChange={e=>setEditForm(f=>({...f,password:e.target.value}))} placeholder="Password"
+                style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+              <input value={editForm.role} onChange={e=>setEditForm(f=>({...f,role:e.target.value}))} placeholder="Role"
+                style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
               <input type="time" value={editForm.checkin_time} onChange={e=>setEditForm(f=>({...f,checkin_time:e.target.value}))}
-                style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13 }} />
+                style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+              <select value={editForm.team_id} onChange={e=>setEditForm(f=>({...f,team_id:e.target.value}))}
+                style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
+                <option value="">-- No Team --</option>
+                {data.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
             </div>
-            <div style={{ display:"flex", gap:8 }}>
-              <button onClick={saveEdit} style={{ background:C.primary, border:"none", color:"#fff", padding:"8px 18px", borderRadius:6, fontSize:13, cursor:"pointer", fontWeight:600 }}>Save Changes</button>
-              <button onClick={cancelEdit} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"8px 18px", borderRadius:6, fontSize:13, cursor:"pointer" }}>Cancel</button>
-            </div>
+            <button onClick={saveEdit} style={{ background:C.primary, border:"none", color:"#fff", padding:"8px 18px", borderRadius:6, fontSize:13, cursor:"pointer", fontWeight:600, marginRight:8 }}>Save</button>
+            <button onClick={()=>{setEditId(null);setEditForm(null)}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"8px 18px", borderRadius:6, fontSize:13, cursor:"pointer" }}>Cancel</button>
           </div>
         ) : (
           <div key={m.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 18px", display:"flex", alignItems:"center", gap:14 }}>
-            <div style={{ width:40, height:40, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:600, color:"#fff" }}>{m.avatar}</div>
+            <div style={{ width:40, height:40, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
             <div style={{ flex:1 }}>
-              <p style={{ color:C.text, fontWeight:600, fontSize:14 }}>{m.name}</p>
-              <p style={{ color:C.textMuted, fontSize:12 }}>{m.email} · {m.role} · 🕐 {m.checkin_time}</p>
+              <p style={{ color:C.text, fontWeight:600, fontSize:14 }}>{m.name} {m.is_team_lead && <span style={{background:C.warningLight, color:C.warning, fontSize:10, padding:"2px 6px", borderRadius:4, marginLeft:4}}>👑 LEAD</span>}</p>
+              <p style={{ color:C.textMuted, fontSize:12 }}>{m.email} · {m.role} · 🕐 {m.checkin_time} · {m.team_id ? `📁 ${data.teams.find(t=>t.id===m.team_id)?.name || "Team"}` : "❌ No team"}</p>
             </div>
-            <button onClick={()=>startEdit(m)} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>✏️ Edit</button>
-            <button onClick={()=>deleteMember(m.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer" }}>Remove</button>
+            <button onClick={()=>startEdit(m)} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>Edit</button>
+            <button onClick={()=>deleteMember(m.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer" }}>✕</button>
           </div>
         ))}
       </div>
@@ -547,7 +706,6 @@ function AdminMembers({ data, refresh }) {
 function AdminTasks({ data, refresh }) {
   const [form, setForm] = useState({ title:"", assigned_to:"", deadline:"", priority:"medium", category:"Development" })
   const [adding, setAdding] = useState(false)
-  const [filter, setFilter] = useState("all")
 
   const addTask = async () => {
     if (!form.title.trim() || !form.assigned_to || !form.deadline) { alert("Sab fields bharein!"); return }
@@ -568,84 +726,51 @@ function AdminTasks({ data, refresh }) {
   const pColor = { high:C.danger, medium:C.warning, low:C.success }
   const pBg = { high:C.dangerLight, medium:C.warningLight, low:C.successLight }
 
-  const filteredTasks = useMemo(()=>{
-    if (filter==="all") return data.tasks
-    if (filter==="overdue") return data.tasks.filter(t=>t.status!=="done" && isPastDate(t.deadline))
-    return data.tasks.filter(t=>t.status===filter)
-  }, [data.tasks, filter])
-
   return (
     <div>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14, flexWrap:"wrap", gap:10 }}>
-        <h2 style={{ color:C.text, fontSize:20, fontWeight:700 }}>Tasks ({filteredTasks.length})</h2>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:18 }}>
+        <h2 style={{ color:C.text, fontSize:20, fontWeight:700 }}>Tasks ({data.tasks.length})</h2>
         <button onClick={()=>setAdding(!adding)} style={{ background:C.primary, border:"none", color:"#fff", padding:"9px 20px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>
           {adding ? "Cancel" : "+ Add Task"}
         </button>
       </div>
-      <div style={{ display:"flex", gap:6, marginBottom:18, flexWrap:"wrap" }}>
-        {[["all","All"],["pending","Pending"],["in-progress","In Progress"],["done","Done"],["overdue","Overdue"]].map(([k,l])=>(
-          <button key={k} onClick={()=>setFilter(k)} style={{ background:filter===k?C.primary:C.surface, color:filter===k?"#fff":C.textMuted, border:`1px solid ${filter===k?C.primary:C.border}`, padding:"6px 14px", borderRadius:20, fontSize:12, fontWeight:600, cursor:"pointer" }}>
-            {l}
-          </button>
-        ))}
-      </div>
       {adding && (
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:20, marginBottom:20 }}>
-          <div style={{ marginBottom:12 }}>
-            <label style={{ color:C.text, fontSize:12, display:"block", marginBottom:4, fontWeight:500 }}>Task Title *</label>
-            <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))}
-              style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", color:C.text, fontSize:13, boxSizing:"border-box" }} placeholder="Task ka naam likhein..." />
+          <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Task title"
+            style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:10, marginBottom:12 }}>
+            <select value={form.assigned_to} onChange={e=>setForm(f=>({...f,assigned_to:e.target.value}))}
+              style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box" }}>
+              <option value="">-- Assign to --</option>
+              {data.members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <input type="date" value={form.deadline} onChange={e=>setForm(f=>({...f,deadline:e.target.value}))}
+              style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box" }} />
+            <select value={form.priority} onChange={e=>setForm(f=>({...f,priority:e.target.value}))}
+              style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box" }}>
+              <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+            </select>
+            <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}
+              style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box" }}>
+              {TASK_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:10, marginBottom:14 }}>
-            <div>
-              <label style={{ color:C.text, fontSize:12, display:"block", marginBottom:4, fontWeight:500 }}>Assign To *</label>
-              <select value={form.assigned_to} onChange={e=>setForm(f=>({...f,assigned_to:e.target.value}))}
-                style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", color:C.text, fontSize:13, boxSizing:"border-box" }}>
-                <option value="">-- Select --</option>
-                {data.members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ color:C.text, fontSize:12, display:"block", marginBottom:4, fontWeight:500 }}>Deadline *</label>
-              <input type="date" value={form.deadline} onChange={e=>setForm(f=>({...f,deadline:e.target.value}))}
-                style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", color:C.text, fontSize:13, boxSizing:"border-box" }} />
-            </div>
-            <div>
-              <label style={{ color:C.text, fontSize:12, display:"block", marginBottom:4, fontWeight:500 }}>Priority</label>
-              <select value={form.priority} onChange={e=>setForm(f=>({...f,priority:e.target.value}))}
-                style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", color:C.text, fontSize:13, boxSizing:"border-box" }}>
-                <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ color:C.text, fontSize:12, display:"block", marginBottom:4, fontWeight:500 }}>Category</label>
-              <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}
-                style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", color:C.text, fontSize:13, boxSizing:"border-box" }}>
-                {TASK_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-          </div>
-          <button onClick={addTask} style={{ background:C.primary, border:"none", color:"#fff", padding:"10px 24px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>Add Task</button>
+          <button onClick={addTask} style={{ background:C.primary, border:"none", color:"#fff", padding:"9px 20px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>Add Task</button>
         </div>
       )}
       <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-        {filteredTasks.map(t => {
+        {data.tasks.map(t => {
           const member = data.members.find(m=>m.id===t.assigned_to)
           const overdue = t.status!=="done" && isPastDate(t.deadline)
           return (
             <div key={t.id} style={{ background:overdue?C.dangerLight:C.surface, border:`1px solid ${overdue?C.danger:C.border}`, borderRadius:10, padding:"14px 16px", display:"flex", alignItems:"center", gap:12 }}>
               <div style={{ width:4, height:40, background:pColor[t.priority], borderRadius:2 }} />
               <div style={{ flex:1 }}>
-                <p style={{ color: t.status==="done"?C.textMuted:C.text, fontWeight:600, fontSize:14, textDecoration:t.status==="done"?"line-through":"none" }}>
-                  {t.title} {overdue && <span style={{ background:C.danger, color:"#fff", fontSize:10, padding:"2px 6px", borderRadius:4, marginLeft:6 }}>OVERDUE</span>}
-                </p>
-                <p style={{ color:C.textMuted, fontSize:12, marginTop:2 }}>
-                  👤 {member?.name||"?"} · 📅 {t.deadline} · 
-                  <span style={{ color:pColor[t.priority], background:pBg[t.priority], padding:"2px 8px", borderRadius:10, marginLeft:6, fontWeight:600, fontSize:11 }}>{t.priority}</span>
-                </p>
+                <p style={{ color: t.status==="done"?C.textMuted:C.text, fontWeight:600, fontSize:14, textDecoration:t.status==="done"?"line-through":"none" }}>{t.title}</p>
+                <p style={{ color:C.textMuted, fontSize:12, marginTop:2 }}>👤 {member?.name||"?"} · 📅 {t.deadline} · <span style={{ color:pColor[t.priority], background:pBg[t.priority], padding:"2px 8px", borderRadius:10, fontWeight:600 }}>{t.priority}</span></p>
               </div>
               <select value={t.status} onChange={e=>updateStatus(t.id,e.target.value)}
-                style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 10px", color:C.text, fontSize:12 }}>
+                style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 10px", fontSize:12 }}>
                 <option value="pending">Pending</option>
                 <option value="in-progress">In Progress</option>
                 <option value="done">Done</option>
@@ -662,46 +787,36 @@ function AdminTasks({ data, refresh }) {
 function AdminAttendance({ data, refresh }) {
   const [viewDate, setViewDate] = useState(today())
   const att = data.attendance[viewDate] || {}
-
   const resetStats = async (memberId) => {
     if (!confirm("Reset late count aur strikes?")) return
     await supabase.from('member_stats').update({ late_count:0, strikes:0 }).eq('member_id', memberId)
     refresh()
   }
-
   return (
     <div>
-      <div style={{ display:"flex", alignItems:"center", gap:16, marginBottom:20, flexWrap:"wrap" }}>
+      <div style={{ display:"flex", gap:16, marginBottom:20, alignItems:"center", flexWrap:"wrap" }}>
         <h2 style={{ color:C.text, fontSize:20, fontWeight:700 }}>Attendance</h2>
         <input type="date" value={viewDate} onChange={e=>setViewDate(e.target.value)}
-          style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"7px 12px", color:C.text, fontSize:13 }} />
-      </div>
-      <div style={{ background:C.primaryLight, border:`1px solid ${C.primary}`, borderRadius:10, padding:"12px 16px", marginBottom:16, fontSize:13, color:C.primary }}>
-        <strong>Late Policy:</strong> 3 lates = 3% penalty · 9 lates = 1 strike
+          style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"7px 12px", fontSize:13 }} />
       </div>
       <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
         {data.members.map(m => {
           const a = att[m.id]
           const lc = data.stats[m.id]?.lateCount || 0
           const strikes = data.stats[m.id]?.strikes || 0
-          const penalty = Math.floor(lc/3) * 3
           return (
             <div key={m.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 18px", display:"flex", alignItems:"center", gap:14 }}>
-              <div style={{ width:38, height:38, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:600, color:"#fff" }}>{m.avatar}</div>
+              <div style={{ width:38, height:38, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
               <div style={{ flex:1 }}>
                 <p style={{ color:C.text, fontWeight:600, fontSize:14 }}>{m.name}</p>
-                <p style={{ color:C.textMuted, fontSize:12 }}>Fixed: {m.checkin_time} · Lates: <strong>{lc}</strong> · Strikes: <strong style={{color:strikes>0?C.danger:C.textMuted}}>{strikes}</strong>{penalty>0 && <span style={{color:C.warning}}> · Penalty: {penalty}%</span>}</p>
+                <p style={{ color:C.textMuted, fontSize:12 }}>Fixed: {m.checkin_time} · Lates: {lc} · Strikes: {strikes}</p>
               </div>
-              <div style={{ display:"flex", gap:6, alignItems:"center" }}>
-                {a ? (
-                  <span style={{ background:a.status==="ontime"?C.successLight:C.warningLight, color:a.status==="ontime"?C.success:C.warning, fontSize:12, padding:"4px 10px", borderRadius:20, fontWeight:600 }}>
-                    {a.status==="ontime"?"✓ "+a.checkIn:"⚠ "+a.checkIn}
-                  </span>
-                ) : (
-                  <span style={{ background:C.dangerLight, color:C.danger, fontSize:12, padding:"4px 10px", borderRadius:20, fontWeight:600 }}>✗ Absent</span>
-                )}
-                {(lc>0||strikes>0) && <button onClick={()=>resetStats(m.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.warning, fontSize:11, padding:"5px 10px", borderRadius:6, cursor:"pointer" }}>Reset</button>}
-              </div>
+              {a ? (
+                <span style={{ background:a.status==="ontime"?C.successLight:C.warningLight, color:a.status==="ontime"?C.success:C.warning, fontSize:12, padding:"4px 10px", borderRadius:20, fontWeight:600 }}>{a.status==="ontime"?"✓ "+a.checkIn:"⚠ "+a.checkIn}</span>
+              ) : (
+                <span style={{ background:C.dangerLight, color:C.danger, fontSize:12, padding:"4px 10px", borderRadius:20, fontWeight:600 }}>✗ Absent</span>
+              )}
+              {(lc>0||strikes>0) && <button onClick={()=>resetStats(m.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.warning, fontSize:11, padding:"5px 10px", borderRadius:6, cursor:"pointer" }}>Reset</button>}
             </div>
           )
         })}
@@ -713,46 +828,31 @@ function AdminAttendance({ data, refresh }) {
 function AdminReports({ data, user, refresh }) {
   const [viewDate, setViewDate] = useState(today())
   const reports = data.reports[viewDate] || {}
-  const [commentBox, setCommentBox] = useState({})
   const [commentText, setCommentText] = useState({})
 
   const addComment = async (memberId) => {
     const text = commentText[memberId]?.trim()
     if (!text) { alert("Comment likhein!"); return }
-    const { error } = await supabase.from('report_comments').insert({
-      report_member_id: memberId,
-      report_date: viewDate,
-      author: user.name,
-      text: text
-    })
-    if (error) { alert("Error: " + error.message); return }
-    setCommentText({ ...commentText, [memberId]: "" })
-    setCommentBox({ ...commentBox, [memberId]: false })
-    refresh()
-  }
-
-  const deleteComment = async (commentId) => {
-    if (!confirm("Delete this comment?")) return
-    await supabase.from('report_comments').delete().eq('id', commentId)
+    await supabase.from('report_comments').insert({ report_member_id:memberId, report_date:viewDate, author:user.name, text })
+    setCommentText({...commentText, [memberId]:""})
     refresh()
   }
 
   return (
     <div>
-      <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:20, flexWrap:"wrap" }}>
+      <div style={{ display:"flex", gap:14, marginBottom:20, alignItems:"center", flexWrap:"wrap" }}>
         <h2 style={{ color:C.text, fontSize:20, fontWeight:700 }}>Daily Reports</h2>
         <input type="date" value={viewDate} onChange={e=>setViewDate(e.target.value)}
-          style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"7px 12px", color:C.text, fontSize:13 }} />
+          style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"7px 12px", fontSize:13 }} />
       </div>
       <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
         {data.members.map(m => {
           const r = reports[m.id]
-          const commentKey = `${m.id}|${viewDate}`
-          const comments = data.reportComments[commentKey] || []
+          const comments = data.reportComments[`${m.id}|${viewDate}`] || []
           return (
             <div key={m.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
               <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12 }}>
-                <div style={{ width:36, height:36, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:600, color:"#fff" }}>{m.avatar}</div>
+                <div style={{ width:36, height:36, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
                 <div>
                   <p style={{ color:C.text, fontWeight:600, fontSize:14 }}>{m.name}</p>
                   <p style={{ color:C.textMuted, fontSize:12 }}>{m.role}</p>
@@ -761,47 +861,27 @@ function AdminReports({ data, user, refresh }) {
                   : <span style={{ marginLeft:"auto", background:C.dangerLight, color:C.danger, fontSize:11, padding:"4px 10px", borderRadius:20, fontWeight:600 }}>Not submitted</span>}
               </div>
               {r && (
-                <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:12, display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-                  <div><p style={{ color:C.textMuted, fontSize:11, marginBottom:3 }}>Tasks completed</p><p style={{ color:C.text, fontSize:13 }}>{r.tasksCompleted||"-"}</p></div>
-                  <div><p style={{ color:C.textMuted, fontSize:11, marginBottom:3 }}>Hours worked</p><p style={{ color:C.text, fontSize:13 }}>{r.hoursWorked||"-"}h</p></div>
-                  {r.blockers && <div style={{ gridColumn:"1/-1" }}><p style={{ color:C.textMuted, fontSize:11, marginBottom:3 }}>Blockers</p><p style={{ color:C.warning, fontSize:13 }}>{r.blockers}</p></div>}
-                  {r.notes && <div style={{ gridColumn:"1/-1" }}><p style={{ color:C.textMuted, fontSize:11, marginBottom:3 }}>Notes</p><p style={{ color:C.text, fontSize:13 }}>{r.notes}</p></div>}
-                </div>
-              )}
-              {r && (
-                <div style={{ marginTop:14, paddingTop:12, borderTop:`1px solid ${C.border}` }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
-                    <p style={{ color:C.textMuted, fontSize:12, fontWeight:600 }}>💬 Admin Comments ({comments.length})</p>
-                    <button onClick={()=>setCommentBox({...commentBox, [m.id]: !commentBox[m.id]})}
-                      style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:11, padding:"5px 10px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>
-                      {commentBox[m.id] ? "Cancel" : "+ Add Comment"}
-                    </button>
+                <>
+                  <div style={{ borderTop:`1px solid ${C.border}`, paddingTop:12, display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                    <div><p style={{ color:C.textMuted, fontSize:11 }}>Tasks completed</p><p style={{ color:C.text, fontSize:13 }}>{r.tasksCompleted}</p></div>
+                    <div><p style={{ color:C.textMuted, fontSize:11 }}>Hours</p><p style={{ color:C.text, fontSize:13 }}>{r.hoursWorked}h</p></div>
+                    {r.blockers && <div style={{ gridColumn:"1/-1" }}><p style={{ color:C.textMuted, fontSize:11 }}>Blockers</p><p style={{ color:C.warning, fontSize:13 }}>{r.blockers}</p></div>}
+                    {r.notes && <div style={{ gridColumn:"1/-1" }}><p style={{ color:C.textMuted, fontSize:11 }}>Notes</p><p style={{ color:C.text, fontSize:13 }}>{r.notes}</p></div>}
                   </div>
-                  {commentBox[m.id] && (
-                    <div style={{ background:C.bg, borderRadius:8, padding:10, marginBottom:10 }}>
-                      <textarea value={commentText[m.id]||""} onChange={e=>setCommentText({...commentText, [m.id]: e.target.value})}
-                        placeholder="Apna comment likhein..." rows={2}
-                        style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", fontFamily:"inherit", resize:"vertical", marginBottom:8 }} />
-                      <button onClick={()=>addComment(m.id)} style={{ background:C.primary, border:"none", color:"#fff", padding:"6px 14px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>Send Comment</button>
+                  <div style={{ marginTop:12, paddingTop:12, borderTop:`1px solid ${C.border}` }}>
+                    <p style={{ color:C.textMuted, fontSize:11, fontWeight:600, marginBottom:6 }}>💬 Comments ({comments.length})</p>
+                    {comments.map((c,i)=>(
+                      <div key={i} style={{ background:C.primaryLight, borderRadius:6, padding:"6px 10px", marginBottom:4, fontSize:12 }}>
+                        <strong style={{color:C.primary}}>{c.author}:</strong> {c.text}
+                      </div>
+                    ))}
+                    <div style={{ display:"flex", gap:6, marginTop:6 }}>
+                      <input value={commentText[m.id]||""} onChange={e=>setCommentText({...commentText,[m.id]:e.target.value})} placeholder="Add comment..."
+                        style={{ flex:1, border:`1px solid ${C.border}`, borderRadius:6, padding:"6px 10px", fontSize:12, boxSizing:"border-box" }} />
+                      <button onClick={()=>addComment(m.id)} style={{ background:C.primary, border:"none", color:"#fff", padding:"6px 14px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>Send</button>
                     </div>
-                  )}
-                  {comments.length > 0 && (
-                    <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                      {comments.map((c,i) => (
-                        <div key={c.id||i} style={{ background:C.primaryLight, borderRadius:8, padding:"10px 12px", fontSize:13 }}>
-                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"start", marginBottom:4 }}>
-                            <strong style={{ color:C.primary, fontSize:12 }}>{c.author}</strong>
-                            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                              <span style={{ color:C.textLight, fontSize:11 }}>{c.time}</span>
-                              {c.id && <button onClick={()=>deleteComment(c.id)} style={{ background:"transparent", border:"none", color:C.danger, fontSize:11, cursor:"pointer", padding:0 }}>✕</button>}
-                            </div>
-                          </div>
-                          <p style={{ color:C.text, fontSize:13 }}>{c.text}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                  </div>
+                </>
               )}
             </div>
           )
@@ -811,43 +891,32 @@ function AdminReports({ data, user, refresh }) {
   )
 }
 
-function AdminVideos({ data }) {
-  const [selected, setSelected] = useState(data.members[0]?.id || "")
-  if (data.members.length === 0) return <p style={{ color:C.textMuted, fontSize:14 }}>Koi member nahi hai abhi.</p>
-  return (
-    <div>
-      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20, flexWrap:"wrap" }}>
-        <h2 style={{ color:C.text, fontSize:20, fontWeight:700 }}>🎬 Videos Tracker</h2>
-        <select value={selected} onChange={e=>setSelected(e.target.value)}
-          style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"7px 12px", color:C.text, fontSize:13 }}>
-          {data.members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-        </select>
-      </div>
-      {selected && <VideoGrid memberId={selected} />}
-    </div>
-  )
-}
-
 // ============ MEMBER DASHBOARD ============
-function MemberDashboard({ user, setUser, onLogout }) {
+function MemberDashboard({ user, onLogout }) {
   const [tab, setTab] = useState("home")
-  const [data, setData] = useState({ tasks:[], attendance:{}, reports:{}, stats:{}, reportComments:{} })
+  const [data, setData] = useState({ tasks:[], attendance:{}, reports:{}, stats:{}, reportComments:{}, team:null, teamMembers:[] })
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
-    const [{ data:tasks }, { data:att }, { data:reps }, { data:stats }, { data:reportComments }] = await Promise.all([
+    const [{ data:tasks }, { data:att }, { data:reps }, { data:stats }, { data:reportComments }, { data:team }, { data:teamMembers }] = await Promise.all([
       supabase.from('tasks').select('*').eq('assigned_to', user.id).order('created_at'),
       supabase.from('attendance').select('*').eq('member_id', user.id),
       supabase.from('reports').select('*').eq('member_id', user.id),
       supabase.from('member_stats').select('*').eq('member_id', user.id).maybeSingle(),
       supabase.from('report_comments').select('*').eq('report_member_id', user.id).order('created_at'),
+      user.teamId ? supabase.from('teams').select('*').eq('id', user.teamId).maybeSingle() : Promise.resolve({data:null}),
+      user.teamId ? supabase.from('members').select('*').eq('team_id', user.teamId) : Promise.resolve({data:[]}),
     ])
-    const attMap = {}; (att||[]).forEach(a=>{ attMap[a.date]={checkIn:a.check_in,checkOut:a.check_out,status:a.status,reason:a.reason,lateBy:a.late_by} })
+    const attMap = {}; (att||[]).forEach(a=>{ attMap[a.date]={checkIn:a.check_in,checkOut:a.check_out,status:a.status,reason:a.reason} })
     const repMap = {}; (reps||[]).forEach(r=>{ repMap[r.date]={tasksCompleted:r.tasks_completed,hoursWorked:r.hours_worked,blockers:r.blockers,notes:r.notes} })
     const rcMap = {}; (reportComments||[]).forEach(rc=>{ if(!rcMap[rc.report_date]) rcMap[rc.report_date]=[]; rcMap[rc.report_date].push({author:rc.author, text:rc.text, time:new Date(rc.created_at).toLocaleString()}) })
-    setData({ tasks:tasks||[], attendance:attMap, reports:repMap, stats:stats?{lateCount:stats.late_count, strikes:stats.strikes}:{lateCount:0,strikes:0}, reportComments:rcMap })
+    setData({
+      tasks:tasks||[], attendance:attMap, reports:repMap,
+      stats:stats?{lateCount:stats.late_count, strikes:stats.strikes}:{lateCount:0,strikes:0},
+      reportComments:rcMap, team, teamMembers:teamMembers||[]
+    })
     setLoading(false)
-  }, [user.id])
+  }, [user.id, user.teamId])
 
   useEffect(() => { refresh() }, [refresh])
 
@@ -858,17 +927,17 @@ function MemberDashboard({ user, setUser, onLogout }) {
     { id:"checkin", label:"Attendance", icon:"🕐" },
     { id:"tasks", label:"My Tasks", icon:"✅" },
     { id:"report", label:"Daily Report", icon:"📋" },
-    { id:"videos", label:"Today's Videos", icon:"🎬" },
   ]
+  if (user.teamId) tabs.push({ id:"team", label:"My Team", icon:"👥" })
 
   return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column" }}>
       <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 20px", display:"flex", alignItems:"center", justifyContent:"space-between", height:60 }}>
         <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:32, height:32, background:getColor(user.id), borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:600, color:"#fff" }}>{user.avatar}</div>
+          <div style={{ width:32, height:32, background:getColor(user.id), borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", fontWeight:600 }}>{user.avatar}</div>
           <div>
-            <p style={{ color:C.text, fontSize:14, fontWeight:600 }}>{user.name}</p>
-            <p style={{ color:C.textMuted, fontSize:11 }}>{user.role}</p>
+            <p style={{ color:C.text, fontSize:14, fontWeight:600 }}>{user.name} {user.isTeamLead && "👑"}</p>
+            <p style={{ color:C.textMuted, fontSize:11 }}>{user.role}{data.team && ` · ${data.team.name}`}</p>
           </div>
         </div>
         <button onClick={onLogout} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, fontSize:13, padding:"7px 16px", borderRadius:8, cursor:"pointer" }}>Logout</button>
@@ -884,9 +953,9 @@ function MemberDashboard({ user, setUser, onLogout }) {
       <div style={{ flex:1, padding:20, overflowY:"auto" }}>
         {tab==="home" && <MemberHome data={data} user={user} />}
         {tab==="checkin" && <MemberCheckin data={data} user={user} refresh={refresh} />}
-        {tab==="tasks" && <MemberTasks data={data} user={user} refresh={refresh} />}
+        {tab==="tasks" && <MemberTasks data={data} refresh={refresh} />}
         {tab==="report" && <MemberReport data={data} user={user} refresh={refresh} />}
-        {tab==="videos" && <MemberVideos user={user} />}
+        {tab==="team" && <MemberTeam data={data} user={user} />}
       </div>
     </div>
   )
@@ -897,38 +966,31 @@ function MemberHome({ data, user }) {
   const att = data.attendance[td]
   const pending = data.tasks.filter(t=>t.status==="pending").length
   const done = data.tasks.filter(t=>t.status==="done").length
-  const overdue = data.tasks.filter(t=>t.status!=="done" && isPastDate(t.deadline)).length
   const reportDone = !!data.reports[td]
   const lc = data.stats.lateCount
   const strikes = data.stats.strikes
-  const penalty = Math.floor(lc/3)*3
-
-  const totalComments = Object.values(data.reportComments).reduce((s,c)=>s+c.length, 0)
-
   return (
     <div>
       <h2 style={{ color:C.text, fontSize:22, fontWeight:700, marginBottom:4 }}>Assalam u Alaikum, {user.name.split(" ")[0]}! 👋</h2>
-      <p style={{ color:C.textMuted, fontSize:13, marginBottom:24 }}>{td}</p>
+      <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{td}{data.team && ` · Team: ${data.team.name}`}</p>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12 }}>
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
-          <p style={{ color:C.textMuted, fontSize:12, marginBottom:6 }}>Attendance Today</p>
+          <p style={{ color:C.textMuted, fontSize:12, marginBottom:6 }}>Attendance</p>
           {att ? <p style={{ color:att.status==="ontime"?C.success:C.warning, fontSize:20, fontWeight:700 }}>{att.status==="ontime"?"✓ On Time":"⚠ Late"}</p>
-            : <p style={{ color:C.danger, fontSize:18, fontWeight:700 }}>✗ Not checked in</p>}
+            : <p style={{ color:C.danger, fontSize:18, fontWeight:700 }}>Not checked in</p>}
         </div>
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
           <p style={{ color:C.textMuted, fontSize:12, marginBottom:6 }}>Lates · Strikes</p>
           <p style={{ color:strikes>0?C.danger:lc>0?C.warning:C.success, fontSize:20, fontWeight:700 }}>{lc} · {strikes}</p>
-          {penalty>0 && <p style={{ color:C.warning, fontSize:11, marginTop:2 }}>{penalty}% penalty</p>}
         </div>
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
           <p style={{ color:C.textMuted, fontSize:12, marginBottom:6 }}>Tasks</p>
           <p style={{ color:C.warning, fontSize:20, fontWeight:700 }}>{pending} pending</p>
-          <p style={{ color:C.textMuted, fontSize:11, marginTop:2 }}>{done} done{overdue>0 && ` · ${overdue} overdue`}</p>
+          <p style={{ color:C.textMuted, fontSize:11 }}>{done} done</p>
         </div>
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
           <p style={{ color:C.textMuted, fontSize:12, marginBottom:6 }}>Daily Report</p>
           <p style={{ color:reportDone?C.success:C.danger, fontSize:18, fontWeight:700 }}>{reportDone?"✓ Submitted":"Pending"}</p>
-          {totalComments > 0 && <p style={{ color:C.primary, fontSize:11, marginTop:4, fontWeight:600 }}>💬 {totalComments} admin comments</p>}
         </div>
       </div>
     </div>
@@ -957,8 +1019,7 @@ function MemberCheckin({ data, user, refresh }) {
     if (isLate && !lateReason.trim()) { alert("Late reason zaroori hai!"); return }
     const status = isLate ? "late" : "ontime"
     const lateBy = isLate ? nowMin - fixedMin : 0
-    const { error } = await supabase.from('attendance').upsert({ member_id:user.id, date:td, check_in:now, status, reason:lateReason||null, late_by:lateBy }, { onConflict:'member_id,date' })
-    if (error) { alert("Error: " + error.message); return }
+    await supabase.from('attendance').upsert({ member_id:user.id, date:td, check_in:now, status, reason:lateReason||null, late_by:lateBy }, { onConflict:'member_id,date' })
     if (isLate) {
       const newLc = data.stats.lateCount + 1
       const addStrike = newLc % 9 === 0
@@ -974,25 +1035,22 @@ function MemberCheckin({ data, user, refresh }) {
     refresh()
   }
 
-  const lc = data.stats.lateCount
-
   return (
     <div>
       <h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:6 }}>Attendance</h2>
       <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>3 lates = 3% penalty · 9 lates = 1 strike</p>
       <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:28, textAlign:"center", marginBottom:20 }}>
-        <p style={{ color:C.textMuted, fontSize:13, marginBottom:8 }}>Current time</p>
-        <p style={{ color:C.text, fontSize:44, fontWeight:700, marginBottom:6 }}>{now}</p>
+        <p style={{ color:C.textMuted, fontSize:13 }}>Current time</p>
+        <p style={{ color:C.text, fontSize:44, fontWeight:700 }}>{now}</p>
         <p style={{ color:C.textMuted, fontSize:13 }}>Your check-in: <strong style={{ color:C.primary }}>{user.checkinTime}</strong></p>
       </div>
       {!att?.checkIn ? (
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:24, textAlign:"center" }}>
           {windowOpen && (
             <div>
-              <p style={{ color:nowMin>fixedMin?C.warning:C.success, fontSize:14, marginBottom:8, fontWeight:600 }}>{nowMin>fixedMin?"Window open (late side)":"Window open!"}</p>
               {nowMin>fixedMin && (
                 <input value={lateReason} onChange={e=>setLateReason(e.target.value)} placeholder="Late reason..."
-                  style={{ marginBottom:10, width:"100%", maxWidth:300, background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", fontSize:13, boxSizing:"border-box" }} />
+                  style={{ marginBottom:10, width:"100%", maxWidth:300, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", fontSize:13, boxSizing:"border-box" }} />
               )}
               <br/>
               <button onClick={doCheckin} style={{ background:nowMin>fixedMin?C.warning:C.success, border:"none", color:"#fff", padding:"14px 40px", borderRadius:10, fontSize:16, fontWeight:600, cursor:"pointer" }}>
@@ -1000,85 +1058,61 @@ function MemberCheckin({ data, user, refresh }) {
               </button>
             </div>
           )}
-          {!windowOpen && !windowPast && (
-            <p style={{ color:C.textMuted, fontSize:14 }}>Window opens in {fixedMin - nowMin} min</p>
-          )}
+          {!windowOpen && !windowPast && <p style={{ color:C.textMuted, fontSize:14 }}>Window opens in {fixedMin - nowMin} min</p>}
           {windowPast && (
             <div>
-              <p style={{ color:C.danger, fontSize:14, marginBottom:12, fontWeight:600 }}>Window closed. Late check-in?</p>
               <input value={lateReason} onChange={e=>setLateReason(e.target.value)} placeholder="Reason..."
-                style={{ width:"100%", maxWidth:300, background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", fontSize:13, marginBottom:10, boxSizing:"border-box" }} />
+                style={{ width:"100%", maxWidth:300, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", fontSize:13, marginBottom:10, boxSizing:"border-box" }} />
               <br/>
               <button onClick={doCheckin} style={{ background:C.warning, border:"none", color:"#fff", padding:"12px 32px", borderRadius:10, fontSize:14, fontWeight:600, cursor:"pointer" }}>⚠ Late Check-in</button>
             </div>
           )}
         </div>
       ) : (
-        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:24 }}>
-          <div style={{ display:"flex", gap:16 }}>
-            <div style={{ flex:1, background:C.bg, borderRadius:10, padding:14 }}>
-              <p style={{ color:C.textMuted, fontSize:12 }}>Checked in</p>
-              <p style={{ color:att.status==="ontime"?C.success:C.warning, fontSize:22, fontWeight:700 }}>{att.checkIn}</p>
-            </div>
-            {att.checkOut ? (
-              <div style={{ flex:1, background:C.bg, borderRadius:10, padding:14 }}>
-                <p style={{ color:C.textMuted, fontSize:12 }}>Checked out</p>
-                <p style={{ color:C.primary, fontSize:22, fontWeight:700 }}>{att.checkOut}</p>
-              </div>
-            ) : (
-              <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                <button onClick={doCheckout} style={{ background:C.primary, border:"none", color:"#fff", padding:"12px 24px", borderRadius:10, fontSize:14, fontWeight:600, cursor:"pointer" }}>Check Out</button>
-              </div>
-            )}
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:24, display:"flex", gap:16 }}>
+          <div style={{ flex:1, background:C.bg, borderRadius:10, padding:14 }}>
+            <p style={{ color:C.textMuted, fontSize:12 }}>Checked in</p>
+            <p style={{ color:att.status==="ontime"?C.success:C.warning, fontSize:22, fontWeight:700 }}>{att.checkIn}</p>
           </div>
+          {att.checkOut ? (
+            <div style={{ flex:1, background:C.bg, borderRadius:10, padding:14 }}>
+              <p style={{ color:C.textMuted, fontSize:12 }}>Checked out</p>
+              <p style={{ color:C.primary, fontSize:22, fontWeight:700 }}>{att.checkOut}</p>
+            </div>
+          ) : (
+            <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center" }}>
+              <button onClick={doCheckout} style={{ background:C.primary, border:"none", color:"#fff", padding:"12px 24px", borderRadius:10, fontSize:14, fontWeight:600, cursor:"pointer" }}>Check Out</button>
+            </div>
+          )}
         </div>
       )}
     </div>
   )
 }
 
-function MemberTasks({ data, user, refresh }) {
+function MemberTasks({ data, refresh }) {
   const pColor = { high:C.danger, medium:C.warning, low:C.success }
   const pBg = { high:C.dangerLight, medium:C.warningLight, low:C.successLight }
-
   const updateStatus = async (id, status) => {
-    await supabase.from('tasks').update({ status, progress: status==="done"?100:undefined }).eq('id', id)
+    await supabase.from('tasks').update({ status, progress:status==="done"?100:undefined }).eq('id', id)
     refresh()
   }
-
   return (
     <div>
       <h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:20 }}>My Tasks ({data.tasks.length})</h2>
-      {data.tasks.length===0 && (
-        <div style={{ textAlign:"center", padding:40, background:C.surface, border:`1px dashed ${C.border}`, borderRadius:12 }}>
-          <p style={{ color:C.textMuted, fontSize:14 }}>🎉 Koi task assign nahi hua!</p>
-        </div>
-      )}
+      {data.tasks.length===0 && <div style={{ textAlign:"center", padding:40, background:C.surface, border:`1px dashed ${C.border}`, borderRadius:12 }}><p style={{ color:C.textMuted, fontSize:14 }}>🎉 Koi task nahi hai!</p></div>}
       <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
         {data.tasks.map(t => {
           const overdue = t.status!=="done" && isPastDate(t.deadline)
           return (
-            <div key={t.id} style={{ background:overdue?C.dangerLight:C.surface, border:`1px solid ${overdue?C.danger:C.border}`, borderRadius:10, padding:"14px 16px" }}>
-              <div style={{ display:"flex", gap:12, alignItems:"center" }}>
-                <div style={{ width:4, height:40, background:pColor[t.priority], borderRadius:2 }} />
-                <div style={{ flex:1 }}>
-                  <p style={{ color:t.status==="done"?C.textMuted:C.text, fontWeight:600, fontSize:14, textDecoration:t.status==="done"?"line-through":"none" }}>
-                    {t.title} {overdue && <span style={{ background:C.danger, color:"#fff", fontSize:10, padding:"2px 6px", borderRadius:4, marginLeft:6 }}>OVERDUE</span>}
-                  </p>
-                  <p style={{ color:C.textMuted, fontSize:12, marginTop:2 }}>
-                    📅 {t.deadline} · <span style={{ color:pColor[t.priority], background:pBg[t.priority], padding:"2px 8px", borderRadius:10, marginLeft:4, fontWeight:600, fontSize:11 }}>{t.priority}</span>
-                  </p>
-                </div>
-                <div style={{ display:"flex", gap:6 }}>
-                  {t.status!=="done" && (
-                    <>
-                      {t.status!=="in-progress" && <button onClick={()=>updateStatus(t.id,"in-progress")} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:12, padding:"6px 12px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>Start</button>}
-                      <button onClick={()=>updateStatus(t.id,"done")} style={{ background:C.successLight, border:"none", color:C.success, fontSize:12, padding:"6px 12px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>Done ✓</button>
-                    </>
-                  )}
-                  {t.status==="done" && <span style={{ color:C.success, fontSize:12, fontWeight:600 }}>✓ Completed</span>}
-                </div>
+            <div key={t.id} style={{ background:overdue?C.dangerLight:C.surface, border:`1px solid ${overdue?C.danger:C.border}`, borderRadius:10, padding:"14px 16px", display:"flex", gap:12, alignItems:"center" }}>
+              <div style={{ width:4, height:40, background:pColor[t.priority], borderRadius:2 }} />
+              <div style={{ flex:1 }}>
+                <p style={{ color:t.status==="done"?C.textMuted:C.text, fontWeight:600, fontSize:14, textDecoration:t.status==="done"?"line-through":"none" }}>{t.title}</p>
+                <p style={{ color:C.textMuted, fontSize:12 }}>📅 {t.deadline} · <span style={{ color:pColor[t.priority], background:pBg[t.priority], padding:"2px 8px", borderRadius:10, fontWeight:600 }}>{t.priority}</span></p>
               </div>
+              {t.status!=="done" && <button onClick={()=>updateStatus(t.id,"done")} style={{ background:C.successLight, border:"none", color:C.success, fontSize:12, padding:"6px 12px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>Done ✓</button>}
+              {t.status==="done" && <span style={{ color:C.success, fontSize:12, fontWeight:600 }}>✓ Completed</span>}
             </div>
           )
         })}
@@ -1095,11 +1129,10 @@ function MemberReport({ data, user, refresh }) {
 
   const submitReport = async () => {
     if (!form.tasksCompleted||!form.hoursWorked) { alert("Tasks aur hours zaroori hain!"); return }
-    const { error } = await supabase.from('reports').upsert({
+    await supabase.from('reports').upsert({
       member_id:user.id, date:td, tasks_completed:form.tasksCompleted, hours_worked:form.hoursWorked,
       blockers:form.blockers||null, notes:form.notes||null, submitted_at:nowHHMM()
     }, { onConflict:'member_id,date' })
-    if (error) { alert("Error: " + error.message); return }
     setSubmitted(true)
     refresh()
   }
@@ -1108,74 +1141,69 @@ function MemberReport({ data, user, refresh }) {
 
   return (
     <div>
-      <h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:4 }}>Daily Report</h2>
+      <h2 style={{ color:C.text, fontSize:20, fontWeight:700 }}>Daily Report</h2>
       <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{td}</p>
       {submitted ? (
         <div>
           <div style={{ background:C.successLight, border:`1px solid ${C.success}`, borderRadius:16, padding:24, marginBottom:16 }}>
-            <p style={{ color:C.success, fontSize:18, fontWeight:700, marginBottom:6 }}>✓ Report submitted!</p>
-            <div style={{ background:"#fff", borderRadius:10, padding:16, marginTop:14, display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-              <div><p style={{ color:C.textMuted, fontSize:11 }}>Tasks completed</p><p style={{ color:C.text, fontSize:14 }}>{form.tasksCompleted}</p></div>
-              <div><p style={{ color:C.textMuted, fontSize:11 }}>Hours worked</p><p style={{ color:C.text, fontSize:14 }}>{form.hoursWorked}h</p></div>
-              {form.blockers && <div style={{ gridColumn:"1/-1" }}><p style={{ color:C.textMuted, fontSize:11 }}>Blockers</p><p style={{ color:C.warning, fontSize:13 }}>{form.blockers}</p></div>}
-              {form.notes && <div style={{ gridColumn:"1/-1" }}><p style={{ color:C.textMuted, fontSize:11 }}>Notes</p><p style={{ color:C.text, fontSize:13 }}>{form.notes}</p></div>}
-            </div>
+            <p style={{ color:C.success, fontSize:18, fontWeight:700 }}>✓ Report submitted!</p>
             <button onClick={()=>setSubmitted(false)} style={{ marginTop:14, background:"transparent", border:`1px solid ${C.success}`, color:C.success, padding:"8px 18px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>Edit</button>
           </div>
           {todayComments.length > 0 && (
             <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:16 }}>
-              <p style={{ color:C.text, fontSize:14, fontWeight:600, marginBottom:10 }}>💬 Admin Feedback ({todayComments.length})</p>
-              <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                {todayComments.map((c,i)=>(
-                  <div key={i} style={{ background:C.primaryLight, borderRadius:8, padding:"10px 12px" }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
-                      <strong style={{ color:C.primary, fontSize:12 }}>{c.author}</strong>
-                      <span style={{ color:C.textLight, fontSize:11 }}>{c.time}</span>
-                    </div>
-                    <p style={{ color:C.text, fontSize:13 }}>{c.text}</p>
-                  </div>
-                ))}
-              </div>
+              <p style={{ color:C.text, fontSize:14, fontWeight:600, marginBottom:10 }}>💬 Feedback</p>
+              {todayComments.map((c,i)=>(
+                <div key={i} style={{ background:C.primaryLight, borderRadius:8, padding:"10px 12px", marginBottom:6 }}>
+                  <strong style={{ color:C.primary, fontSize:12 }}>{c.author}:</strong>
+                  <p style={{ color:C.text, fontSize:13 }}>{c.text}</p>
+                </div>
+              ))}
             </div>
           )}
         </div>
       ) : (
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:24 }}>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:14 }}>
-            <div>
-              <label style={{ color:C.text, fontSize:12, display:"block", marginBottom:6, fontWeight:500 }}>Tasks completed *</label>
-              <input value={form.tasksCompleted} onChange={e=>setForm(f=>({...f,tasksCompleted:e.target.value}))}
-                style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", color:C.text, fontSize:13, boxSizing:"border-box" }} placeholder="e.g. Login fix" />
-            </div>
-            <div>
-              <label style={{ color:C.text, fontSize:12, display:"block", marginBottom:6, fontWeight:500 }}>Hours worked *</label>
-              <input type="number" min="0" max="24" step="0.5" value={form.hoursWorked} onChange={e=>setForm(f=>({...f,hoursWorked:e.target.value}))}
-                style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", color:C.text, fontSize:13, boxSizing:"border-box" }} placeholder="e.g. 7.5" />
-            </div>
+            <input value={form.tasksCompleted} onChange={e=>setForm(f=>({...f,tasksCompleted:e.target.value}))} placeholder="Tasks completed"
+              style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", fontSize:13, boxSizing:"border-box" }} />
+            <input type="number" value={form.hoursWorked} onChange={e=>setForm(f=>({...f,hoursWorked:e.target.value}))} placeholder="Hours"
+              style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", fontSize:13, boxSizing:"border-box" }} />
           </div>
-          <div style={{ marginBottom:14 }}>
-            <label style={{ color:C.text, fontSize:12, display:"block", marginBottom:6, fontWeight:500 }}>Blockers (optional)</label>
-            <input value={form.blockers} onChange={e=>setForm(f=>({...f,blockers:e.target.value}))}
-              style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", color:C.text, fontSize:13, boxSizing:"border-box" }} placeholder="Koi rukawat..." />
-          </div>
-          <div style={{ marginBottom:20 }}>
-            <label style={{ color:C.text, fontSize:12, display:"block", marginBottom:6, fontWeight:500 }}>Notes</label>
-            <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} rows={3}
-              style={{ width:"100%", background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", color:C.text, fontSize:13, boxSizing:"border-box", resize:"vertical", fontFamily:"inherit" }} placeholder="Additional notes..." />
-          </div>
-          <button onClick={submitReport} style={{ background:C.primary, border:"none", color:"#fff", padding:"12px 28px", borderRadius:10, fontSize:14, fontWeight:600, cursor:"pointer" }}>Submit Report →</button>
+          <input value={form.blockers} onChange={e=>setForm(f=>({...f,blockers:e.target.value}))} placeholder="Blockers (optional)"
+            style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", fontSize:13, boxSizing:"border-box", marginBottom:14 }} />
+          <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} rows={3} placeholder="Notes"
+            style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", fontSize:13, boxSizing:"border-box", marginBottom:20, resize:"vertical", fontFamily:"inherit" }} />
+          <button onClick={submitReport} style={{ background:C.primary, border:"none", color:"#fff", padding:"12px 28px", borderRadius:10, fontSize:14, fontWeight:600, cursor:"pointer" }}>Submit →</button>
         </div>
       )}
     </div>
   )
 }
 
-function MemberVideos({ user }) {
+function MemberTeam({ data, user }) {
+  if (!data.team) return <p style={{ color:C.textMuted, fontSize:14 }}>Aap kisi team mein nahi hain. Admin se contact karein.</p>
+  const canEdit = user.isTeamLead
   return (
     <div>
-      <h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:4 }}>🎬 Today's Videos</h2>
-      <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>Apne channels ka daily video tracker — excel ki tarah edit karein</p>
-      <VideoGrid memberId={user.id} />
+      <h2 style={{ color:C.text, fontSize:22, fontWeight:700 }}>👥 {data.team.name}</h2>
+      <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{data.team.description || "—"}</p>
+      
+      <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginBottom:10 }}>Team Members</h3>
+      <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:24 }}>
+        {data.teamMembers.map(m => (
+          <div key={m.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:32, height:32, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
+            <div style={{ flex:1 }}>
+              <p style={{ color:C.text, fontSize:13, fontWeight:600 }}>{m.name} {m.is_team_lead && "👑"}</p>
+              <p style={{ color:C.textMuted, fontSize:11 }}>{m.role}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginBottom:10 }}>📊 TikTok Accounts</h3>
+      {!canEdit && <p style={{ color:C.textMuted, fontSize:12, marginBottom:10 }}>💡 Aap sirf Status toggle kar sakte hain. Edit permission Team Lead ke paas hai.</p>}
+      <TikTokSheet teamId={data.team.id} canEdit={canEdit} />
     </div>
   )
 }
