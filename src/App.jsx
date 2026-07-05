@@ -106,11 +106,11 @@ function LoginScreen({ form, setForm, onLogin, error }) {
   )
 }
 
-// ============ SHARED: TikTok Sheet ============
+// ============ SHARED: TikTok Sheet (with Competitor Link) ============
 function TikTokSheet({ teamId, canEdit }) {
   const [accounts, setAccounts] = useState([])
   const [loading, setLoading] = useState(true)
-  const [form, setForm] = useState({ account_name:"", niche:"", tiktok_link:"", video_source:"" })
+  const [form, setForm] = useState({ account_name:"", niche:"", tiktok_link:"", video_source:"", competitor_link:"" })
   const [adding, setAdding] = useState(false)
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState(null)
@@ -127,7 +127,7 @@ function TikTokSheet({ teamId, canEdit }) {
   const addAccount = async () => {
     if (!form.account_name.trim()) { alert("Account name zaroori hai!"); return }
     await supabase.from('tiktok_accounts').insert({ id:"acc"+Date.now(), team_id:teamId, ...form, status:'not_yet' })
-    setForm({ account_name:"", niche:"", tiktok_link:"", video_source:"" })
+    setForm({ account_name:"", niche:"", tiktok_link:"", video_source:"", competitor_link:"" })
     setAdding(false)
     load()
   }
@@ -165,10 +165,11 @@ function TikTokSheet({ teamId, canEdit }) {
       {adding && canEdit && (
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:16, marginBottom:14 }}>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
-            <input value={form.account_name} onChange={e=>setForm(f=>({...f,account_name:e.target.value}))} placeholder="Account Name" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+            <input value={form.account_name} onChange={e=>setForm(f=>({...f,account_name:e.target.value}))} placeholder="Account Name *" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
             <input value={form.niche} onChange={e=>setForm(f=>({...f,niche:e.target.value}))} placeholder="Niche" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
             <input value={form.tiktok_link} onChange={e=>setForm(f=>({...f,tiktok_link:e.target.value}))} placeholder="TikTok Link" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
             <input value={form.video_source} onChange={e=>setForm(f=>({...f,video_source:e.target.value}))} placeholder="Video Source" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+            <input value={form.competitor_link} onChange={e=>setForm(f=>({...f,competitor_link:e.target.value}))} placeholder="Competitor Link" style={{ gridColumn:"1/-1", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
           </div>
           <button onClick={addAccount} style={{ background:C.success, border:"none", color:"#fff", padding:"8px 20px", borderRadius:6, fontSize:13, cursor:"pointer", fontWeight:600 }}>Save Account</button>
         </div>
@@ -180,14 +181,15 @@ function TikTokSheet({ teamId, canEdit }) {
         </div>
       ) : (
         <div style={{ overflowX:"auto", border:`1px solid ${C.border}`, borderRadius:10 }}>
-          <table style={{ borderCollapse:"collapse", width:"100%", fontSize:13, minWidth:800 }}>
+          <table style={{ borderCollapse:"collapse", width:"100%", fontSize:13, minWidth:900 }}>
             <thead>
               <tr style={{ background:C.bg }}>
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>#</th>
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Account</th>
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Niche</th>
-                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Link</th>
+                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>TikTok</th>
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Source</th>
+                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Competitor</th>
                 <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Status</th>
                 {canEdit && <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Actions</th>}
               </tr>
@@ -200,6 +202,7 @@ function TikTokSheet({ teamId, canEdit }) {
                   <td style={{ padding:"6px 8px" }}><input value={editForm.niche} onChange={e=>setEditForm(f=>({...f,niche:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
                   <td style={{ padding:"6px 8px" }}><input value={editForm.tiktok_link} onChange={e=>setEditForm(f=>({...f,tiktok_link:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
                   <td style={{ padding:"6px 8px" }}><input value={editForm.video_source} onChange={e=>setEditForm(f=>({...f,video_source:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
+                  <td style={{ padding:"6px 8px" }}><input value={editForm.competitor_link||""} onChange={e=>setEditForm(f=>({...f,competitor_link:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
                   <td style={{ padding:"8px", textAlign:"center", color:C.textMuted }}>—</td>
                   <td style={{ padding:"8px", textAlign:"center" }}>
                     <button onClick={saveEdit} style={{ background:C.success, border:"none", color:"#fff", fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer", marginRight:4 }}>Save</button>
@@ -213,6 +216,7 @@ function TikTokSheet({ teamId, canEdit }) {
                   <td style={{ padding:"10px 12px" }}>{acc.niche || "—"}</td>
                   <td style={{ padding:"10px 12px" }}>{acc.tiktok_link ? <a href={acc.tiktok_link} target="_blank" rel="noopener noreferrer" style={{ color:C.primary, fontSize:12 }}>Open →</a> : "—"}</td>
                   <td style={{ padding:"10px 12px" }}>{acc.video_source || "—"}</td>
+                  <td style={{ padding:"10px 12px" }}>{acc.competitor_link ? <a href={acc.competitor_link} target="_blank" rel="noopener noreferrer" style={{ color:C.warning, fontSize:12 }}>🎯 Open</a> : "—"}</td>
                   <td style={{ padding:"8px", textAlign:"center" }}>
                     <button onClick={()=>toggleStatus(acc)} style={{ background:acc.status==='done'?C.successLight:C.dangerLight, color:acc.status==='done'?C.success:C.danger, border:"none", borderRadius:20, padding:"5px 14px", fontSize:12, fontWeight:600, cursor:"pointer" }}>
                       {acc.status==='done' ? "✓ Done" : "Not Yet"}
@@ -220,7 +224,7 @@ function TikTokSheet({ teamId, canEdit }) {
                   </td>
                   {canEdit && (
                     <td style={{ padding:"8px", textAlign:"center" }}>
-                      <button onClick={()=>{setEditId(acc.id); setEditForm({account_name:acc.account_name, niche:acc.niche||"", tiktok_link:acc.tiktok_link||"", video_source:acc.video_source||""})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer", marginRight:4, fontWeight:600 }}>Edit</button>
+                      <button onClick={()=>{setEditId(acc.id); setEditForm({account_name:acc.account_name, niche:acc.niche||"", tiktok_link:acc.tiktok_link||"", video_source:acc.video_source||"", competitor_link:acc.competitor_link||""})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer", marginRight:4, fontWeight:600 }}>Edit</button>
                       <button onClick={()=>deleteAccount(acc.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer" }}>✕</button>
                     </td>
                   )}
@@ -261,19 +265,19 @@ function TeamLinks({ teamId, canEdit }) {
   }
 
   const saveEdit = async () => {
-    if (!editForm.name.trim() || !editForm.url.trim()) return alert("Name aur URL zaroori hai!")
+    if (!editForm.name.trim() || !editForm.url.trim()) return alert("Name aur URL zaroori!")
     await supabase.from('team_links').update(editForm).eq('id', editId)
     setEditId(null); setEditForm(null)
     load()
   }
 
   const deleteLink = async (id) => {
-    if (!confirm("Delete this link?")) return
+    if (!confirm("Delete link?")) return
     await supabase.from('team_links').delete().eq('id', id)
     load()
   }
 
-  if (loading) return <p style={{ color:C.textMuted, fontSize:13 }}>Loading links...</p>
+  if (loading) return <p style={{ color:C.textMuted, fontSize:13 }}>Loading...</p>
 
   return (
     <div>
@@ -292,7 +296,7 @@ function TeamLinks({ teamId, canEdit }) {
               {LINK_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </div>
-          <input value={form.url} onChange={e=>setForm(f=>({...f,url:e.target.value}))} placeholder="URL (https://...)" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
+          <input value={form.url} onChange={e=>setForm(f=>({...f,url:e.target.value}))} placeholder="URL" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
           <input value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Notes (optional)" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
           <button onClick={addLink} style={{ background:C.success, border:"none", color:"#fff", padding:"8px 20px", borderRadius:6, fontSize:13, cursor:"pointer", fontWeight:600 }}>Save Link</button>
         </div>
@@ -300,7 +304,7 @@ function TeamLinks({ teamId, canEdit }) {
 
       {links.length === 0 ? (
         <div style={{ textAlign:"center", padding:30, background:C.surface, border:`1px dashed ${C.border}`, borderRadius:10 }}>
-          <p style={{ color:C.textMuted, fontSize:14 }}>Koi link add nahi kiya abhi.</p>
+          <p style={{ color:C.textMuted, fontSize:14 }}>Koi link nahi hai abhi.</p>
         </div>
       ) : (
         <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
@@ -309,12 +313,12 @@ function TeamLinks({ teamId, canEdit }) {
             return editId === link.id ? (
               <div key={link.id} style={{ background:C.surface, border:`2px solid ${C.primary}`, borderRadius:10, padding:14 }}>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
-                  <input value={editForm.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} placeholder="Name" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"6px 10px", fontSize:13, boxSizing:"border-box" }} />
+                  <input value={editForm.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"6px 10px", fontSize:13, boxSizing:"border-box" }} />
                   <select value={editForm.link_type} onChange={e=>setEditForm(f=>({...f,link_type:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"6px 10px", fontSize:13, boxSizing:"border-box" }}>
                     {LINK_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 </div>
-                <input value={editForm.url} onChange={e=>setEditForm(f=>({...f,url:e.target.value}))} placeholder="URL" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"6px 10px", fontSize:13, boxSizing:"border-box", marginBottom:8 }} />
+                <input value={editForm.url} onChange={e=>setEditForm(f=>({...f,url:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"6px 10px", fontSize:13, boxSizing:"border-box", marginBottom:8 }} />
                 <input value={editForm.notes||""} onChange={e=>setEditForm(f=>({...f,notes:e.target.value}))} placeholder="Notes" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"6px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
                 <button onClick={saveEdit} style={{ background:C.success, border:"none", color:"#fff", padding:"6px 14px", borderRadius:6, fontSize:12, cursor:"pointer", marginRight:6, fontWeight:600 }}>Save</button>
                 <button onClick={()=>{setEditId(null);setEditForm(null)}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"6px 14px", borderRadius:6, fontSize:12, cursor:"pointer" }}>Cancel</button>
@@ -325,7 +329,7 @@ function TeamLinks({ teamId, canEdit }) {
                 <div style={{ flex:1, minWidth:0 }}>
                   <p style={{ color:C.text, fontSize:14, fontWeight:600 }}>{link.name}</p>
                   <p style={{ color:C.textMuted, fontSize:12, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{link.url}</p>
-                  {link.notes && <p style={{ color:C.textLight, fontSize:11, marginTop:2 }}>{link.notes}</p>}
+                  {link.notes && <p style={{ color:C.textLight, fontSize:11 }}>{link.notes}</p>}
                 </div>
                 <a href={link.url} target="_blank" rel="noopener noreferrer" style={{ background:C.primaryLight, color:C.primary, padding:"7px 14px", borderRadius:6, fontSize:12, fontWeight:600, textDecoration:"none" }}>Open →</a>
                 {canEdit && (
@@ -343,9 +347,108 @@ function TeamLinks({ teamId, canEdit }) {
   )
 }
 
+// ============ SHARED: Niche Ideas Section (Global) ============
+function NicheIdeas({ user }) {
+  const [ideas, setIdeas] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [form, setForm] = useState({ name:"", description:"", link:"" })
+  const [adding, setAdding] = useState(false)
+  const [editId, setEditId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data } = await supabase.from('niche_ideas').select('*').order('created_at', { ascending:false })
+    setIdeas(data || [])
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const addIdea = async () => {
+    if (!form.name.trim()) return alert("Niche name zaroori hai!")
+    await supabase.from('niche_ideas').insert({ id:"n"+Date.now(), ...form, added_by:user.name })
+    setForm({ name:"", description:"", link:"" })
+    setAdding(false)
+    load()
+  }
+
+  const saveEdit = async () => {
+    if (!editForm.name.trim()) return alert("Name zaroori!")
+    await supabase.from('niche_ideas').update({ name:editForm.name, description:editForm.description, link:editForm.link }).eq('id', editId)
+    setEditId(null); setEditForm(null)
+    load()
+  }
+
+  const deleteIdea = async (id) => {
+    if (!confirm("Delete this niche idea?")) return
+    await supabase.from('niche_ideas').delete().eq('id', id)
+    load()
+  }
+
+  if (loading) return <p style={{ color:C.textMuted, fontSize:13 }}>Loading ideas...</p>
+
+  return (
+    <div>
+      <div style={{ background:C.warningLight, border:`1px solid ${C.warning}`, borderRadius:10, padding:"12px 16px", marginBottom:16, fontSize:13, color:C.warning }}>
+        💡 <strong>Niche Ideas Board</strong> — Sab log yahan naye niche ideas share kar sakte hain. Sab dekh sakte hain.
+      </div>
+      
+      <div style={{ marginBottom:14 }}>
+        <button onClick={()=>setAdding(!adding)} style={{ background:C.primary, border:"none", color:"#fff", padding:"8px 18px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>
+          {adding ? "Cancel" : "+ Add Idea"}
+        </button>
+      </div>
+
+      {adding && (
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:16, marginBottom:14 }}>
+          <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Niche Name * (e.g. Fashion Reviews)" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
+          <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} rows={2} placeholder="Description (optional)" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10, resize:"vertical", fontFamily:"inherit" }} />
+          <input value={form.link} onChange={e=>setForm(f=>({...f,link:e.target.value}))} placeholder="Reference Link (optional)" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
+          <button onClick={addIdea} style={{ background:C.success, border:"none", color:"#fff", padding:"8px 20px", borderRadius:6, fontSize:13, cursor:"pointer", fontWeight:600 }}>Share Idea</button>
+        </div>
+      )}
+
+      {ideas.length === 0 ? (
+        <div style={{ textAlign:"center", padding:30, background:C.surface, border:`1px dashed ${C.border}`, borderRadius:10 }}>
+          <p style={{ color:C.textMuted, fontSize:14 }}>💡 Abhi tak koi niche idea nahi. Pehla idea share karo!</p>
+        </div>
+      ) : (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:12 }}>
+          {ideas.map(idea => editId === idea.id ? (
+            <div key={idea.id} style={{ background:C.surface, border:`2px solid ${C.primary}`, borderRadius:10, padding:14 }}>
+              <input value={editForm.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"6px 10px", fontSize:13, boxSizing:"border-box", marginBottom:8 }} />
+              <textarea value={editForm.description||""} onChange={e=>setEditForm(f=>({...f,description:e.target.value}))} rows={2} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"6px 10px", fontSize:13, boxSizing:"border-box", marginBottom:8, resize:"vertical", fontFamily:"inherit" }} />
+              <input value={editForm.link||""} onChange={e=>setEditForm(f=>({...f,link:e.target.value}))} placeholder="Link" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"6px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
+              <button onClick={saveEdit} style={{ background:C.success, border:"none", color:"#fff", padding:"6px 14px", borderRadius:6, fontSize:12, cursor:"pointer", marginRight:6, fontWeight:600 }}>Save</button>
+              <button onClick={()=>{setEditId(null);setEditForm(null)}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"6px 14px", borderRadius:6, fontSize:12, cursor:"pointer" }}>Cancel</button>
+            </div>
+          ) : (
+            <div key={idea.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:16, display:"flex", flexDirection:"column" }}>
+              <div style={{ display:"flex", alignItems:"start", gap:8, marginBottom:8 }}>
+                <div style={{ fontSize:20 }}>💡</div>
+                <p style={{ color:C.text, fontSize:15, fontWeight:600, flex:1 }}>{idea.name}</p>
+              </div>
+              {idea.description && <p style={{ color:C.textMuted, fontSize:13, marginBottom:8, lineHeight:1.5 }}>{idea.description}</p>}
+              {idea.link && <a href={idea.link} target="_blank" rel="noopener noreferrer" style={{ color:C.primary, fontSize:12, marginBottom:8, textDecoration:"none" }}>🔗 Open Link →</a>}
+              <div style={{ marginTop:"auto", paddingTop:10, borderTop:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <p style={{ color:C.textLight, fontSize:11 }}>👤 {idea.added_by || "Unknown"}</p>
+                <div style={{ display:"flex", gap:4 }}>
+                  <button onClick={()=>{setEditId(idea.id); setEditForm({name:idea.name, description:idea.description||"", link:idea.link||""})}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer" }}>Edit</button>
+                  <button onClick={()=>deleteIdea(idea.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer" }}>✕</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ============ SHARED: Team Members Management ============
 function TeamMembersManage({ teamId, allMembers, refresh, canManage }) {
-  const [addMode, setAddMode] = useState(null) // 'existing' | 'new' | null
+  const [addMode, setAddMode] = useState(null)
   const [existingSelect, setExistingSelect] = useState("")
   const [newForm, setNewForm] = useState({ name:"", email:"", password:"", role:"", checkin_time:"09:00" })
   const [credShow, setCredShow] = useState(null)
@@ -361,7 +464,7 @@ function TeamMembersManage({ teamId, allMembers, refresh, canManage }) {
   }
 
   const createNew = async () => {
-    if (!newForm.name || !newForm.email || !newForm.role) return alert("Name, email, role zaroori hain!")
+    if (!newForm.name || !newForm.email || !newForm.role) return alert("Name, email, role zaroori!")
     const password = newForm.password || genPassword()
     const id = "m"+Date.now()
     const avatar = newForm.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()
@@ -379,7 +482,7 @@ function TeamMembersManage({ teamId, allMembers, refresh, canManage }) {
   }
 
   const removeFromTeam = async (memberId) => {
-    if (!confirm("Team se remove karein? (Member delete nahi hoga, sirf team se hatega)")) return
+    if (!confirm("Team se remove karein?")) return
     await supabase.from('members').update({ team_id:null, is_team_lead:false }).eq('id', memberId)
     refresh()
   }
@@ -399,7 +502,7 @@ function TeamMembersManage({ teamId, allMembers, refresh, canManage }) {
 
       {credShow && (
         <div style={{ background:C.successLight, border:`1px solid ${C.success}`, borderRadius:10, padding:14, marginBottom:12 }}>
-          <p style={{ color:C.success, fontWeight:600, fontSize:13, marginBottom:6 }}>✓ Member added! Credentials for {credShow.name}:</p>
+          <p style={{ color:C.success, fontWeight:600, fontSize:13, marginBottom:6 }}>✓ Credentials for {credShow.name}:</p>
           <div style={{ background:"#fff", borderRadius:6, padding:"8px 12px", fontFamily:"monospace", fontSize:12 }}>
             <div>Email: <strong>{credShow.email}</strong></div>
             <div>Password: <strong>{credShow.password}</strong></div>
@@ -411,7 +514,7 @@ function TeamMembersManage({ teamId, allMembers, refresh, canManage }) {
       {addMode === 'existing' && (
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:14, marginBottom:12 }}>
           {availableMembers.length === 0 ? (
-            <p style={{ color:C.textMuted, fontSize:12 }}>Koi available member nahi hai. Sab already kisi team mein hain. Naya banao ya doosri team se remove karo.</p>
+            <p style={{ color:C.textMuted, fontSize:12 }}>Koi available member nahi hai.</p>
           ) : (
             <>
               <select value={existingSelect} onChange={e=>setExistingSelect(e.target.value)} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }}>
@@ -478,7 +581,7 @@ function AdminDashboard({ user, onLogout }) {
     const attMap = {}; (att||[]).forEach(a=>{ if(!attMap[a.date]) attMap[a.date]={}; attMap[a.date][a.member_id]={checkIn:a.check_in,checkOut:a.check_out,status:a.status} })
     const repMap = {}; (reps||[]).forEach(r=>{ if(!repMap[r.date]) repMap[r.date]={}; repMap[r.date][r.member_id]={tasksCompleted:r.tasks_completed,hoursWorked:r.hours_worked,blockers:r.blockers,notes:r.notes} })
     const statsMap = {}; (stats||[]).forEach(s=>{ statsMap[s.member_id]={lateCount:s.late_count,strikes:s.strikes} })
-    const rcMap = {}; (reportComments||[]).forEach(rc=>{ const k = `${rc.report_member_id}|${rc.report_date}`; if(!rcMap[k]) rcMap[k]=[]; rcMap[k].push({id:rc.id, author:rc.author, text:rc.text, time:new Date(rc.created_at).toLocaleString()}) })
+    const rcMap = {}; (reportComments||[]).forEach(rc=>{ const k = `${rc.report_member_id}|${rc.report_date}`; if(!rcMap[k]) rcMap[k]=[]; rcMap[k].push({id:rc.id, author:rc.author, text:rc.text}) })
     setData({ members:members||[], tasks:tasks||[], attendance:attMap, reports:repMap, stats:statsMap, reportComments:rcMap, teams:teams||[], accounts:accounts||[] })
     setLoading(false)
   }, [])
@@ -492,6 +595,7 @@ function AdminDashboard({ user, onLogout }) {
     { id:"tasks", label:"Tasks", icon:"✅" },
     { id:"attendance", label:"Attendance", icon:"🕐" },
     { id:"reports", label:"Reports", icon:"📋" },
+    { id:"niche", label:"Niche Ideas", icon:"💡" },
   ]
 
   if (loading) return <Loader />
@@ -521,6 +625,7 @@ function AdminDashboard({ user, onLogout }) {
         {tab==="tasks" && <AdminTasks data={data} refresh={refresh} />}
         {tab==="attendance" && <AdminAttendance data={data} refresh={refresh} />}
         {tab==="reports" && <AdminReports data={data} user={user} refresh={refresh} />}
+        {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas Board</h2><NicheIdeas user={user} /></div>}
       </div>
     </div>
   )
@@ -562,7 +667,7 @@ function AdminOverview({ data }) {
       <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:24 }}>
         {data.teams.length === 0 ? (
           <div style={{ background:C.surface, border:`1px dashed ${C.border}`, borderRadius:10, padding:20, textAlign:"center" }}>
-            <p style={{ color:C.textMuted, fontSize:13 }}>Koi team nahi hai abhi. "Teams" tab pe ja ke banao.</p>
+            <p style={{ color:C.textMuted, fontSize:13 }}>Koi team nahi hai abhi.</p>
           </div>
         ) : data.teams.map(t => {
           const tm = data.members.filter(m => m.team_id === t.id)
@@ -616,8 +721,7 @@ function AdminTeams({ data, refresh }) {
   }
 
   const saveEdit = async () => {
-    if (!editForm.name.trim()) return alert("Name zaroori hai!")
-    // Old lead ko unset (if changed)
+    if (!editForm.name.trim()) return alert("Name zaroori!")
     const oldTeam = data.teams.find(t=>t.id===editId)
     if (oldTeam?.team_lead_id && oldTeam.team_lead_id !== editForm.team_lead_id) {
       await supabase.from('members').update({ is_team_lead:false }).eq('id', oldTeam.team_lead_id)
@@ -1005,7 +1109,7 @@ function TeamLeadDashboard({ user, onLogout }) {
   if (!team) return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
       <div style={{ textAlign:"center" }}>
-        <p style={{ color:C.textMuted, fontSize:14, marginBottom:14 }}>Aap kisi team ke Lead nahi hain abhi. Super Admin se contact karein.</p>
+        <p style={{ color:C.textMuted, fontSize:14, marginBottom:14 }}>Aap kisi team ke Lead nahi hain abhi.</p>
         <button onClick={onLogout} style={{ background:C.primary, border:"none", color:"#fff", padding:"9px 20px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>Logout</button>
       </div>
     </div>
@@ -1016,6 +1120,7 @@ function TeamLeadDashboard({ user, onLogout }) {
     { id:"team", label:"My Team", icon:"👥" },
     { id:"accounts", label:"TikTok Sheet", icon:"📊" },
     { id:"links", label:"Links", icon:"🔗" },
+    { id:"niche", label:"Niche Ideas", icon:"💡" },
     { id:"checkin", label:"Attendance", icon:"🕐" },
     { id:"tasks", label:"My Tasks", icon:"✅" },
     { id:"report", label:"Report", icon:"📋" },
@@ -1065,6 +1170,7 @@ function TeamLeadDashboard({ user, onLogout }) {
         {tab==="team" && <TeamMembersManage teamId={team.id} allMembers={members} refresh={refresh} canManage={true} />}
         {tab==="accounts" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📊 TikTok Accounts</h2><TikTokSheet teamId={team.id} canEdit={true} /></div>}
         {tab==="links" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🔗 Team Links</h2><TeamLinks teamId={team.id} canEdit={true} /></div>}
+        {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas</h2><NicheIdeas user={user} /></div>}
         {tab==="checkin" && <MemberCheckin data={myData} user={user} refresh={refresh} />}
         {tab==="tasks" && <MemberTasks data={myData} refresh={refresh} />}
         {tab==="report" && <MemberReport data={myData} user={user} refresh={refresh} />}
@@ -1105,8 +1211,9 @@ function MemberDashboard({ user, onLogout }) {
     { id:"checkin", label:"Attendance", icon:"🕐" },
     { id:"tasks", label:"My Tasks", icon:"✅" },
     { id:"report", label:"Daily Report", icon:"📋" },
+    { id:"niche", label:"Niche Ideas", icon:"💡" },
   ]
-  if (user.teamId) tabs.push({ id:"team", label:"My Team", icon:"👥" })
+  if (user.teamId) tabs.splice(4, 0, { id:"team", label:"My Team", icon:"👥" })
 
   return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column" }}>
@@ -1134,6 +1241,7 @@ function MemberDashboard({ user, onLogout }) {
         {tab==="tasks" && <MemberTasks data={data} refresh={refresh} />}
         {tab==="report" && <MemberReport data={data} user={user} refresh={refresh} />}
         {tab==="team" && <MemberTeamView data={data} />}
+        {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas</h2><NicheIdeas user={user} /></div>}
       </div>
     </div>
   )
