@@ -21,6 +21,9 @@ const avatarColors = ["#6366f1","#10b981","#f59e0b","#ec4899","#8b5cf6","#ef4444
 const getColor = (id) => avatarColors[Math.abs(String(id).split("").reduce((a,c)=>a+c.charCodeAt(0),0)) % avatarColors.length]
 const genPassword = () => Math.random().toString(36).slice(-6)
 
+const CATEGORY_COLORS = { "Gold":"#f59e0b", "Silver":"#9ca3af", "Experimental":"#8b5cf6" }
+const catColor = (name) => CATEGORY_COLORS[name] || "#4f46e5"
+
 const LINK_TYPES = [
   { value:"sheet", label:"📊 Google Sheet" },
   { value:"drive", label:"📁 Google Drive" },
@@ -106,28 +109,50 @@ function LoginScreen({ form, setForm, onLogin, error }) {
   )
 }
 
-// ============ SHARED: TikTok Sheet (with Competitor Link) ============
+// ============ SHARED: TikTok Sheet (Category + Competitor + Daily Reset) ============
 function TikTokSheet({ teamId, canEdit }) {
   const [accounts, setAccounts] = useState([])
+  const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
-  const [form, setForm] = useState({ account_name:"", niche:"", tiktok_link:"", video_source:"", competitor_link:"" })
+  const [form, setForm] = useState({ account_name:"", niche:"", tiktok_link:"", video_source:"", competitor_link:"", category:"" })
   const [adding, setAdding] = useState(false)
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState(null)
+  const td = today()
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase.from('tiktok_accounts').select('*').eq('team_id', teamId).order('created_at')
-    setAccounts(data || [])
+    const [{ data:accs }, { data:cats }] = await Promise.all([
+      supabase.from('tiktok_accounts').select('*').eq('team_id', teamId).order('created_at'),
+      supabase.from('account_categories').select('*').order('created_at'),
+    ])
+    setAccounts(accs || [])
+    setCategories(cats || [])
     setLoading(false)
   }, [teamId])
 
   useEffect(() => { load() }, [load])
 
+  // Daily reset logic: status sirf aaj ki date ka valid hai
+  const isDone = (acc) => acc.status === 'done' && acc.status_date === td
+
+  const handleCategoryChange = async (value, setFn) => {
+    if (value === "__new__") {
+      const name = prompt("Nayi category ka naam likhein:")
+      if (!name || !name.trim()) return
+      const id = "cat"+Date.now()
+      await supabase.from('account_categories').insert({ id, name:name.trim() })
+      setCategories(c => [...c, { id, name:name.trim() }])
+      setFn(name.trim())
+    } else {
+      setFn(value)
+    }
+  }
+
   const addAccount = async () => {
     if (!form.account_name.trim()) { alert("Account name zaroori hai!"); return }
-    await supabase.from('tiktok_accounts').insert({ id:"acc"+Date.now(), team_id:teamId, ...form, status:'not_yet' })
-    setForm({ account_name:"", niche:"", tiktok_link:"", video_source:"", competitor_link:"" })
+    await supabase.from('tiktok_accounts').insert({ id:"acc"+Date.now(), team_id:teamId, ...form, status:'not_yet', status_date:null })
+    setForm({ account_name:"", niche:"", tiktok_link:"", video_source:"", competitor_link:"", category:"" })
     setAdding(false)
     load()
   }
@@ -146,15 +171,28 @@ function TikTokSheet({ teamId, canEdit }) {
   }
 
   const toggleStatus = async (acc) => {
-    const newStatus = acc.status === 'done' ? 'not_yet' : 'done'
-    await supabase.from('tiktok_accounts').update({ status:newStatus }).eq('id', acc.id)
-    setAccounts(a => a.map(x => x.id===acc.id ? {...x, status:newStatus} : x))
+    const nowDone = isDone(acc)
+    const newStatus = nowDone ? 'not_yet' : 'done'
+    await supabase.from('tiktok_accounts').update({ status:newStatus, status_date:td }).eq('id', acc.id)
+    setAccounts(a => a.map(x => x.id===acc.id ? {...x, status:newStatus, status_date:td} : x))
   }
 
   if (loading) return <p style={{ color:C.textMuted, fontSize:13 }}>Loading...</p>
 
+  const catSelect = (value, onChange) => (
+    <select value={value||""} onChange={e=>handleCategoryChange(e.target.value, onChange)}
+      style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", width:"100%" }}>
+      <option value="">-- Category --</option>
+      {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+      {canEdit && <option value="__new__">➕ New category...</option>}
+    </select>
+  )
+
   return (
     <div>
+      <div style={{ background:C.primaryLight, border:`1px solid ${C.primary}`, borderRadius:8, padding:"8px 14px", marginBottom:14, fontSize:12, color:C.primary }}>
+        ⏰ Status har naye din automatically "Not Yet" ho jata hai
+      </div>
       {canEdit && (
         <div style={{ marginBottom:14 }}>
           <button onClick={()=>setAdding(!adding)} style={{ background:C.primary, border:"none", color:"#fff", padding:"8px 18px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>
@@ -169,7 +207,8 @@ function TikTokSheet({ teamId, canEdit }) {
             <input value={form.niche} onChange={e=>setForm(f=>({...f,niche:e.target.value}))} placeholder="Niche" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
             <input value={form.tiktok_link} onChange={e=>setForm(f=>({...f,tiktok_link:e.target.value}))} placeholder="TikTok Link" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
             <input value={form.video_source} onChange={e=>setForm(f=>({...f,video_source:e.target.value}))} placeholder="Video Source" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
-            <input value={form.competitor_link} onChange={e=>setForm(f=>({...f,competitor_link:e.target.value}))} placeholder="Competitor Link" style={{ gridColumn:"1/-1", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+            <input value={form.competitor_link} onChange={e=>setForm(f=>({...f,competitor_link:e.target.value}))} placeholder="Competitor Link" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+            {catSelect(form.category, (v)=>setForm(f=>({...f,category:v})))}
           </div>
           <button onClick={addAccount} style={{ background:C.success, border:"none", color:"#fff", padding:"8px 20px", borderRadius:6, fontSize:13, cursor:"pointer", fontWeight:600 }}>Save Account</button>
         </div>
@@ -181,16 +220,17 @@ function TikTokSheet({ teamId, canEdit }) {
         </div>
       ) : (
         <div style={{ overflowX:"auto", border:`1px solid ${C.border}`, borderRadius:10 }}>
-          <table style={{ borderCollapse:"collapse", width:"100%", fontSize:13, minWidth:900 }}>
+          <table style={{ borderCollapse:"collapse", width:"100%", fontSize:13, minWidth:1000 }}>
             <thead>
               <tr style={{ background:C.bg }}>
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>#</th>
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Account</th>
+                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Category</th>
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Niche</th>
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>TikTok</th>
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Source</th>
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Competitor</th>
-                <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Status</th>
+                <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Status (Today)</th>
                 {canEdit && <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Actions</th>}
               </tr>
             </thead>
@@ -199,6 +239,7 @@ function TikTokSheet({ teamId, canEdit }) {
                 <tr key={acc.id} style={{ borderBottom:`1px solid ${C.border}`, background:C.primaryLight }}>
                   <td style={{ padding:"8px 12px" }}>{idx+1}</td>
                   <td style={{ padding:"6px 8px" }}><input value={editForm.account_name} onChange={e=>setEditForm(f=>({...f,account_name:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
+                  <td style={{ padding:"6px 8px" }}>{catSelect(editForm.category, (v)=>setEditForm(f=>({...f,category:v})))}</td>
                   <td style={{ padding:"6px 8px" }}><input value={editForm.niche} onChange={e=>setEditForm(f=>({...f,niche:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
                   <td style={{ padding:"6px 8px" }}><input value={editForm.tiktok_link} onChange={e=>setEditForm(f=>({...f,tiktok_link:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
                   <td style={{ padding:"6px 8px" }}><input value={editForm.video_source} onChange={e=>setEditForm(f=>({...f,video_source:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
@@ -213,18 +254,21 @@ function TikTokSheet({ teamId, canEdit }) {
                 <tr key={acc.id} style={{ borderBottom:`1px solid ${C.border}` }}>
                   <td style={{ padding:"10px 12px", color:C.textMuted }}>{idx+1}</td>
                   <td style={{ padding:"10px 12px", color:C.text, fontWeight:500 }}>{acc.account_name}</td>
+                  <td style={{ padding:"10px 12px" }}>
+                    {acc.category ? <span style={{ background:catColor(acc.category)+"22", color:catColor(acc.category), fontSize:11, padding:"3px 10px", borderRadius:12, fontWeight:600 }}>{acc.category}</span> : "—"}
+                  </td>
                   <td style={{ padding:"10px 12px" }}>{acc.niche || "—"}</td>
                   <td style={{ padding:"10px 12px" }}>{acc.tiktok_link ? <a href={acc.tiktok_link} target="_blank" rel="noopener noreferrer" style={{ color:C.primary, fontSize:12 }}>Open →</a> : "—"}</td>
                   <td style={{ padding:"10px 12px" }}>{acc.video_source || "—"}</td>
                   <td style={{ padding:"10px 12px" }}>{acc.competitor_link ? <a href={acc.competitor_link} target="_blank" rel="noopener noreferrer" style={{ color:C.warning, fontSize:12 }}>🎯 Open</a> : "—"}</td>
                   <td style={{ padding:"8px", textAlign:"center" }}>
-                    <button onClick={()=>toggleStatus(acc)} style={{ background:acc.status==='done'?C.successLight:C.dangerLight, color:acc.status==='done'?C.success:C.danger, border:"none", borderRadius:20, padding:"5px 14px", fontSize:12, fontWeight:600, cursor:"pointer" }}>
-                      {acc.status==='done' ? "✓ Done" : "Not Yet"}
+                    <button onClick={()=>toggleStatus(acc)} style={{ background:isDone(acc)?C.successLight:C.dangerLight, color:isDone(acc)?C.success:C.danger, border:"none", borderRadius:20, padding:"5px 14px", fontSize:12, fontWeight:600, cursor:"pointer" }}>
+                      {isDone(acc) ? "✓ Done" : "Not Yet"}
                     </button>
                   </td>
                   {canEdit && (
                     <td style={{ padding:"8px", textAlign:"center" }}>
-                      <button onClick={()=>{setEditId(acc.id); setEditForm({account_name:acc.account_name, niche:acc.niche||"", tiktok_link:acc.tiktok_link||"", video_source:acc.video_source||"", competitor_link:acc.competitor_link||""})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer", marginRight:4, fontWeight:600 }}>Edit</button>
+                      <button onClick={()=>{setEditId(acc.id); setEditForm({account_name:acc.account_name, niche:acc.niche||"", tiktok_link:acc.tiktok_link||"", video_source:acc.video_source||"", competitor_link:acc.competitor_link||"", category:acc.category||""})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer", marginRight:4, fontWeight:600 }}>Edit</button>
                       <button onClick={()=>deleteAccount(acc.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer" }}>✕</button>
                     </td>
                   )}
@@ -238,7 +282,7 @@ function TikTokSheet({ teamId, canEdit }) {
   )
 }
 
-// ============ SHARED: Team Links Section ============
+// ============ SHARED: Team Links ============
 function TeamLinks({ teamId, canEdit }) {
   const [links, setLinks] = useState([])
   const [loading, setLoading] = useState(true)
@@ -347,8 +391,8 @@ function TeamLinks({ teamId, canEdit }) {
   )
 }
 
-// ============ SHARED: Niche Ideas Section (Global) ============
-function NicheIdeas({ user }) {
+// ============ SHARED: Ideas Board (Niche + Voiceover dono ke liye) ============
+function IdeasBoard({ user, table, title, emoji }) {
   const [ideas, setIdeas] = useState([])
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState({ name:"", description:"", link:"" })
@@ -358,16 +402,16 @@ function NicheIdeas({ user }) {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase.from('niche_ideas').select('*').order('created_at', { ascending:false })
+    const { data } = await supabase.from(table).select('*').order('created_at', { ascending:false })
     setIdeas(data || [])
     setLoading(false)
-  }, [])
+  }, [table])
 
   useEffect(() => { load() }, [load])
 
   const addIdea = async () => {
-    if (!form.name.trim()) return alert("Niche name zaroori hai!")
-    await supabase.from('niche_ideas').insert({ id:"n"+Date.now(), ...form, added_by:user.name })
+    if (!form.name.trim()) return alert("Name zaroori hai!")
+    await supabase.from(table).insert({ id:"i"+Date.now(), ...form, added_by:user.name })
     setForm({ name:"", description:"", link:"" })
     setAdding(false)
     load()
@@ -375,23 +419,23 @@ function NicheIdeas({ user }) {
 
   const saveEdit = async () => {
     if (!editForm.name.trim()) return alert("Name zaroori!")
-    await supabase.from('niche_ideas').update({ name:editForm.name, description:editForm.description, link:editForm.link }).eq('id', editId)
+    await supabase.from(table).update({ name:editForm.name, description:editForm.description, link:editForm.link }).eq('id', editId)
     setEditId(null); setEditForm(null)
     load()
   }
 
   const deleteIdea = async (id) => {
-    if (!confirm("Delete this niche idea?")) return
-    await supabase.from('niche_ideas').delete().eq('id', id)
+    if (!confirm("Delete this idea?")) return
+    await supabase.from(table).delete().eq('id', id)
     load()
   }
 
-  if (loading) return <p style={{ color:C.textMuted, fontSize:13 }}>Loading ideas...</p>
+  if (loading) return <p style={{ color:C.textMuted, fontSize:13 }}>Loading...</p>
 
   return (
     <div>
       <div style={{ background:C.warningLight, border:`1px solid ${C.warning}`, borderRadius:10, padding:"12px 16px", marginBottom:16, fontSize:13, color:C.warning }}>
-        💡 <strong>Niche Ideas Board</strong> — Sab log yahan naye niche ideas share kar sakte hain. Sab dekh sakte hain.
+        {emoji} <strong>{title}</strong> — Sab log yahan ideas share kar sakte hain.
       </div>
       
       <div style={{ marginBottom:14 }}>
@@ -402,7 +446,7 @@ function NicheIdeas({ user }) {
 
       {adding && (
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:16, marginBottom:14 }}>
-          <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Niche Name * (e.g. Fashion Reviews)" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
+          <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Idea Name *" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
           <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} rows={2} placeholder="Description (optional)" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10, resize:"vertical", fontFamily:"inherit" }} />
           <input value={form.link} onChange={e=>setForm(f=>({...f,link:e.target.value}))} placeholder="Reference Link (optional)" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
           <button onClick={addIdea} style={{ background:C.success, border:"none", color:"#fff", padding:"8px 20px", borderRadius:6, fontSize:13, cursor:"pointer", fontWeight:600 }}>Share Idea</button>
@@ -411,7 +455,7 @@ function NicheIdeas({ user }) {
 
       {ideas.length === 0 ? (
         <div style={{ textAlign:"center", padding:30, background:C.surface, border:`1px dashed ${C.border}`, borderRadius:10 }}>
-          <p style={{ color:C.textMuted, fontSize:14 }}>💡 Abhi tak koi niche idea nahi. Pehla idea share karo!</p>
+          <p style={{ color:C.textMuted, fontSize:14 }}>{emoji} Abhi tak koi idea nahi. Pehla idea share karo!</p>
         </div>
       ) : (
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:12 }}>
@@ -426,7 +470,7 @@ function NicheIdeas({ user }) {
           ) : (
             <div key={idea.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:16, display:"flex", flexDirection:"column" }}>
               <div style={{ display:"flex", alignItems:"start", gap:8, marginBottom:8 }}>
-                <div style={{ fontSize:20 }}>💡</div>
+                <div style={{ fontSize:20 }}>{emoji}</div>
                 <p style={{ color:C.text, fontSize:15, fontWeight:600, flex:1 }}>{idea.name}</p>
               </div>
               {idea.description && <p style={{ color:C.textMuted, fontSize:13, marginBottom:8, lineHeight:1.5 }}>{idea.description}</p>}
@@ -490,7 +534,7 @@ function TeamMembersManage({ teamId, allMembers, refresh, canManage }) {
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-        <h3 style={{ color:C.text, fontSize:15, fontWeight:600 }}>Team Members ({teamMembers.length})</h3>
+        <h3 style={{ color:C.text, fontSize:15, fontWeight:600 }}>Members ({teamMembers.length})</h3>
         {canManage && !addMode && (
           <div style={{ display:"flex", gap:6 }}>
             <button onClick={()=>setAddMode('existing')} style={{ background:C.primaryLight, border:"none", color:C.primary, padding:"7px 14px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>+ Add Existing</button>
@@ -543,7 +587,7 @@ function TeamMembersManage({ teamId, allMembers, refresh, canManage }) {
 
       <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
         {teamMembers.length === 0 ? (
-          <p style={{ color:C.textMuted, fontSize:13 }}>Koi member is team mein nahi hai.</p>
+          <p style={{ color:C.textMuted, fontSize:13 }}>Koi member nahi hai.</p>
         ) : teamMembers.map(m => (
           <div key={m.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ width:32, height:32, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
@@ -556,6 +600,120 @@ function TeamMembersManage({ teamId, allMembers, refresh, canManage }) {
             )}
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+// ============ SHARED: Groups Section (Teams + CGP dono ke liye) ============
+function GroupsSection({ data, refresh, groupType, sectionLabel }) {
+  const [form, setForm] = useState({ name:"", description:"", team_lead_id:"" })
+  const [adding, setAdding] = useState(false)
+  const [selectedTeam, setSelectedTeam] = useState(null)
+  const [editId, setEditId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
+
+  const groups = data.teams.filter(t => (t.group_type || 'team') === groupType)
+
+  const addTeam = async () => {
+    if (!form.name.trim()) return alert("Name zaroori hai!")
+    const id = "team"+Date.now()
+    await supabase.from('teams').insert({ id, name:form.name, description:form.description, team_lead_id:form.team_lead_id||null, group_type:groupType })
+    if (form.team_lead_id) await supabase.from('members').update({ is_team_lead:true, team_id:id }).eq('id', form.team_lead_id)
+    setForm({ name:"", description:"", team_lead_id:"" })
+    setAdding(false)
+    refresh()
+  }
+
+  const saveEdit = async () => {
+    if (!editForm.name.trim()) return alert("Name zaroori!")
+    const oldTeam = data.teams.find(t=>t.id===editId)
+    if (oldTeam?.team_lead_id && oldTeam.team_lead_id !== editForm.team_lead_id) {
+      await supabase.from('members').update({ is_team_lead:false }).eq('id', oldTeam.team_lead_id)
+    }
+    await supabase.from('teams').update({ name:editForm.name, description:editForm.description, team_lead_id:editForm.team_lead_id||null }).eq('id', editId)
+    if (editForm.team_lead_id) await supabase.from('members').update({ is_team_lead:true, team_id:editId }).eq('id', editForm.team_lead_id)
+    setEditId(null); setEditForm(null)
+    refresh()
+  }
+
+  const deleteTeam = async (id) => {
+    if (!confirm(`${sectionLabel} delete karein?`)) return
+    await supabase.from('members').update({ team_id:null, is_team_lead:false }).eq('team_id', id)
+    await supabase.from('teams').delete().eq('id', id)
+    refresh()
+  }
+
+  if (selectedTeam) {
+    const team = data.teams.find(t=>t.id===selectedTeam)
+    const lead = data.members.find(m => m.id === team?.team_lead_id)
+    return (
+      <div>
+        <button onClick={()=>setSelectedTeam(null)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"6px 14px", borderRadius:8, fontSize:12, cursor:"pointer", marginBottom:16 }}>← Back to {sectionLabel}</button>
+        <h2 style={{ color:C.text, fontSize:22, fontWeight:700, marginBottom:4 }}>{team?.name}</h2>
+        <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{team?.description || "—"} · 👑 {lead?.name || "No Lead"}</p>
+
+        <TeamMembersManage teamId={selectedTeam} allMembers={data.members} refresh={refresh} canManage={true} />
+
+        <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:12 }}>📊 TikTok Accounts</h3>
+        <TikTokSheet teamId={selectedTeam} canEdit={true} />
+
+        <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:12 }}>🔗 Links</h3>
+        <TeamLinks teamId={selectedTeam} canEdit={true} />
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+        <h2 style={{ color:C.text, fontSize:20, fontWeight:700 }}>{sectionLabel} ({groups.length})</h2>
+        <button onClick={()=>setAdding(!adding)} style={{ background:C.primary, border:"none", color:"#fff", padding:"9px 20px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>
+          {adding ? "Cancel" : `+ Add ${sectionLabel === "Teams" ? "Team" : "CGP"}`}
+        </button>
+      </div>
+
+      {adding && (
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:20, marginBottom:20 }}>
+          <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Name *" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
+          <input value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Description" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
+          <select value={form.team_lead_id} onChange={e=>setForm(f=>({...f,team_lead_id:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box", marginBottom:12 }}>
+            <option value="">-- No Lead --</option>
+            {data.members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+          <button onClick={addTeam} style={{ background:C.primary, border:"none", color:"#fff", padding:"9px 20px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>Create</button>
+        </div>
+      )}
+
+      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+        {groups.map(t => editId === t.id ? (
+          <div key={t.id} style={{ background:C.surface, border:`2px solid ${C.primary}`, borderRadius:12, padding:16 }}>
+            <input value={editForm.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:8 }} />
+            <input value={editForm.description} onChange={e=>setEditForm(f=>({...f,description:e.target.value}))} placeholder="Description" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:8 }} />
+            <select value={editForm.team_lead_id} onChange={e=>setEditForm(f=>({...f,team_lead_id:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }}>
+              <option value="">-- No Lead --</option>
+              {data.members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <button onClick={saveEdit} style={{ background:C.success, border:"none", color:"#fff", padding:"7px 16px", borderRadius:6, fontSize:12, cursor:"pointer", marginRight:6, fontWeight:600 }}>Save</button>
+            <button onClick={()=>{setEditId(null);setEditForm(null)}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"7px 16px", borderRadius:6, fontSize:12, cursor:"pointer" }}>Cancel</button>
+          </div>
+        ) : (
+          <div key={t.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 18px", display:"flex", alignItems:"center", gap:14 }}>
+            <div style={{ width:44, height:44, borderRadius:10, background:getColor(t.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, color:"#fff" }}>{groupType === 'cgp' ? "🚀" : "👥"}</div>
+            <div style={{ flex:1, cursor:"pointer" }} onClick={()=>setSelectedTeam(t.id)}>
+              <p style={{ color:C.text, fontSize:15, fontWeight:600 }}>{t.name}</p>
+              <p style={{ color:C.textMuted, fontSize:12 }}>{t.description || "No description"} · 👤 {data.members.filter(m=>m.team_id===t.id).length} · 📊 {data.accounts.filter(a=>a.team_id===t.id).length}</p>
+            </div>
+            <button onClick={()=>setSelectedTeam(t.id)} style={{ background:C.primaryLight, border:"none", color:C.primary, padding:"7px 14px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>Open →</button>
+            <button onClick={()=>{setEditId(t.id); setEditForm({name:t.name, description:t.description||"", team_lead_id:t.team_lead_id||""})}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"7px 12px", borderRadius:6, fontSize:12, cursor:"pointer" }}>Edit</button>
+            <button onClick={()=>deleteTeam(t.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, padding:"7px 12px", borderRadius:6, fontSize:12, cursor:"pointer" }}>✕</button>
+          </div>
+        ))}
+        {groups.length === 0 && !adding && (
+          <div style={{ background:C.surface, border:`1px dashed ${C.border}`, borderRadius:12, padding:30, textAlign:"center" }}>
+            <p style={{ color:C.textMuted, fontSize:14 }}>Koi {sectionLabel === "Teams" ? "team" : "CGP"} nahi hai. Add karo.</p>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -591,11 +749,13 @@ function AdminDashboard({ user, onLogout }) {
   const tabs = [
     { id:"overview", label:"Overview", icon:"📊" },
     { id:"teams", label:"Teams", icon:"👥" },
+    { id:"cgp", label:"CGP", icon:"🚀" },
     { id:"members", label:"Members", icon:"👤" },
     { id:"tasks", label:"Tasks", icon:"✅" },
     { id:"attendance", label:"Attendance", icon:"🕐" },
     { id:"reports", label:"Reports", icon:"📋" },
     { id:"niche", label:"Niche Ideas", icon:"💡" },
+    { id:"voiceover", label:"Voiceover Ideas", icon:"🎙️" },
   ]
 
   if (loading) return <Loader />
@@ -613,19 +773,21 @@ function AdminDashboard({ user, onLogout }) {
       <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 24px", display:"flex", gap:4, overflowX:"auto" }}>
         {tabs.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            style={{ background:"transparent", border:"none", borderBottom: tab===t.id ? `2px solid ${C.primary}` : "2px solid transparent", color: tab===t.id ? C.primary : C.textMuted, padding:"14px 16px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap", fontWeight: tab===t.id?600:500 }}>
+            style={{ background:"transparent", border:"none", borderBottom: tab===t.id ? `2px solid ${C.primary}` : "2px solid transparent", color: tab===t.id ? C.primary : C.textMuted, padding:"14px 14px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap", fontWeight: tab===t.id?600:500 }}>
             {t.icon} {t.label}
           </button>
         ))}
       </div>
       <div style={{ flex:1, padding:24, overflowY:"auto" }}>
         {tab==="overview" && <AdminOverview data={data} />}
-        {tab==="teams" && <AdminTeams data={data} refresh={refresh} />}
+        {tab==="teams" && <GroupsSection data={data} refresh={refresh} groupType="team" sectionLabel="Teams" />}
+        {tab==="cgp" && <GroupsSection data={data} refresh={refresh} groupType="cgp" sectionLabel="CGP" />}
         {tab==="members" && <AdminMembers data={data} refresh={refresh} />}
         {tab==="tasks" && <AdminTasks data={data} refresh={refresh} />}
         {tab==="attendance" && <AdminAttendance data={data} refresh={refresh} />}
         {tab==="reports" && <AdminReports data={data} user={user} refresh={refresh} />}
-        {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas Board</h2><NicheIdeas user={user} /></div>}
+        {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas Board</h2><IdeasBoard user={user} table="niche_ideas" title="Niche Ideas Board" emoji="💡" /></div>}
+        {tab==="voiceover" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🎙️ Voiceover Ideas Board</h2><IdeasBoard user={user} table="voiceover_ideas" title="Voiceover Ideas Board" emoji="🎙️" /></div>}
       </div>
     </div>
   )
@@ -641,9 +803,13 @@ function AdminOverview({ data }) {
   const niches = {}
   data.accounts.forEach(a => { const n = a.niche || "Uncategorized"; niches[n] = (niches[n]||0)+1 })
 
+  const teamGroups = data.teams.filter(t=>(t.group_type||'team')==='team')
+  const cgpGroups = data.teams.filter(t=>t.group_type==='cgp')
+
   const cards = [
-    { label:"Total Teams", value: data.teams.length, color:C.primary },
-    { label:"Total Members", value: data.members.length, color:C.purple },
+    { label:"Total Teams", value: teamGroups.length, color:C.primary },
+    { label:"Total CGP", value: cgpGroups.length, color:C.purple },
+    { label:"Total Members", value: data.members.length, color:C.success },
     { label:"Total TikTok Accounts", value: data.accounts.length, color:C.orange },
     { label:"On Time Today", value: ontime, color:C.success },
     { label:"Late Today", value: late, color:C.warning },
@@ -663,28 +829,28 @@ function AdminOverview({ data }) {
         ))}
       </div>
 
-      <h3 style={{ color:C.text, fontSize:14, fontWeight:600, marginBottom:14, textTransform:"uppercase" }}>Teams Breakdown</h3>
-      <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:24 }}>
-        {data.teams.length === 0 ? (
-          <div style={{ background:C.surface, border:`1px dashed ${C.border}`, borderRadius:10, padding:20, textAlign:"center" }}>
-            <p style={{ color:C.textMuted, fontSize:13 }}>Koi team nahi hai abhi.</p>
+      {[["Teams Breakdown", teamGroups], ["CGP Breakdown", cgpGroups]].map(([label, groups]) => groups.length > 0 && (
+        <div key={label}>
+          <h3 style={{ color:C.text, fontSize:14, fontWeight:600, marginBottom:14, textTransform:"uppercase" }}>{label}</h3>
+          <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:24 }}>
+            {groups.map(t => {
+              const tm = data.members.filter(m => m.team_id === t.id)
+              const ta = data.accounts.filter(a => a.team_id === t.id)
+              const done = ta.filter(a => a.status === 'done' && a.status_date === td).length
+              const lead = data.members.find(m => m.id === t.team_lead_id)
+              return (
+                <div key={t.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 18px", display:"flex", alignItems:"center", gap:14 }}>
+                  <div style={{ width:40, height:40, borderRadius:10, background:getColor(t.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, color:"#fff" }}>{t.group_type==='cgp'?"🚀":"👥"}</div>
+                  <div style={{ flex:1 }}>
+                    <p style={{ color:C.text, fontSize:14, fontWeight:600 }}>{t.name}</p>
+                    <p style={{ color:C.textMuted, fontSize:12 }}>👑 {lead?.name || "No Lead"} · 👤 {tm.length} · 📊 {ta.length} ({done} done today)</p>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        ) : data.teams.map(t => {
-          const tm = data.members.filter(m => m.team_id === t.id)
-          const ta = data.accounts.filter(a => a.team_id === t.id)
-          const done = ta.filter(a => a.status === 'done').length
-          const lead = data.members.find(m => m.id === t.team_lead_id)
-          return (
-            <div key={t.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 18px", display:"flex", alignItems:"center", gap:14 }}>
-              <div style={{ width:40, height:40, borderRadius:10, background:getColor(t.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, color:"#fff" }}>👥</div>
-              <div style={{ flex:1 }}>
-                <p style={{ color:C.text, fontSize:14, fontWeight:600 }}>{t.name}</p>
-                <p style={{ color:C.textMuted, fontSize:12 }}>👑 {lead?.name || "No Lead"} · 👤 {tm.length} · 📊 {ta.length} ({done} done)</p>
-              </div>
-            </div>
-          )
-        })}
-      </div>
+        </div>
+      ))}
 
       {Object.keys(niches).length > 0 && (
         <>
@@ -699,117 +865,6 @@ function AdminOverview({ data }) {
           </div>
         </>
       )}
-    </div>
-  )
-}
-
-function AdminTeams({ data, refresh }) {
-  const [form, setForm] = useState({ name:"", description:"", team_lead_id:"" })
-  const [adding, setAdding] = useState(false)
-  const [selectedTeam, setSelectedTeam] = useState(null)
-  const [editId, setEditId] = useState(null)
-  const [editForm, setEditForm] = useState(null)
-
-  const addTeam = async () => {
-    if (!form.name.trim()) return alert("Team name zaroori hai!")
-    const id = "team"+Date.now()
-    await supabase.from('teams').insert({ id, name:form.name, description:form.description, team_lead_id:form.team_lead_id||null })
-    if (form.team_lead_id) await supabase.from('members').update({ is_team_lead:true, team_id:id }).eq('id', form.team_lead_id)
-    setForm({ name:"", description:"", team_lead_id:"" })
-    setAdding(false)
-    refresh()
-  }
-
-  const saveEdit = async () => {
-    if (!editForm.name.trim()) return alert("Name zaroori!")
-    const oldTeam = data.teams.find(t=>t.id===editId)
-    if (oldTeam?.team_lead_id && oldTeam.team_lead_id !== editForm.team_lead_id) {
-      await supabase.from('members').update({ is_team_lead:false }).eq('id', oldTeam.team_lead_id)
-    }
-    await supabase.from('teams').update({ name:editForm.name, description:editForm.description, team_lead_id:editForm.team_lead_id||null }).eq('id', editId)
-    if (editForm.team_lead_id) await supabase.from('members').update({ is_team_lead:true, team_id:editId }).eq('id', editForm.team_lead_id)
-    setEditId(null); setEditForm(null)
-    refresh()
-  }
-
-  const deleteTeam = async (id) => {
-    if (!confirm("Team delete karein?")) return
-    await supabase.from('members').update({ team_id:null, is_team_lead:false }).eq('team_id', id)
-    await supabase.from('teams').delete().eq('id', id)
-    refresh()
-  }
-
-  if (selectedTeam) {
-    const team = data.teams.find(t=>t.id===selectedTeam)
-    const lead = data.members.find(m => m.id === team?.team_lead_id)
-    return (
-      <div>
-        <button onClick={()=>setSelectedTeam(null)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"6px 14px", borderRadius:8, fontSize:12, cursor:"pointer", marginBottom:16 }}>← Back to Teams</button>
-        <h2 style={{ color:C.text, fontSize:22, fontWeight:700, marginBottom:4 }}>{team?.name}</h2>
-        <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{team?.description || "—"} · 👑 {lead?.name || "No Lead"}</p>
-
-        <TeamMembersManage teamId={selectedTeam} allMembers={data.members} refresh={refresh} canManage={true} />
-
-        <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:12 }}>📊 TikTok Accounts</h3>
-        <TikTokSheet teamId={selectedTeam} canEdit={true} />
-
-        <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:12 }}>🔗 Team Links</h3>
-        <TeamLinks teamId={selectedTeam} canEdit={true} />
-      </div>
-    )
-  }
-
-  return (
-    <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-        <h2 style={{ color:C.text, fontSize:20, fontWeight:700 }}>Teams ({data.teams.length})</h2>
-        <button onClick={()=>setAdding(!adding)} style={{ background:C.primary, border:"none", color:"#fff", padding:"9px 20px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>
-          {adding ? "Cancel" : "+ Add Team"}
-        </button>
-      </div>
-
-      {adding && (
-        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:20, marginBottom:20 }}>
-          <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Team Name *" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
-          <input value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Description" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
-          <select value={form.team_lead_id} onChange={e=>setForm(f=>({...f,team_lead_id:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box", marginBottom:12 }}>
-            <option value="">-- No Lead --</option>
-            {data.members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
-          <button onClick={addTeam} style={{ background:C.primary, border:"none", color:"#fff", padding:"9px 20px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>Create Team</button>
-        </div>
-      )}
-
-      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-        {data.teams.map(t => editId === t.id ? (
-          <div key={t.id} style={{ background:C.surface, border:`2px solid ${C.primary}`, borderRadius:12, padding:16 }}>
-            <input value={editForm.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:8 }} />
-            <input value={editForm.description} onChange={e=>setEditForm(f=>({...f,description:e.target.value}))} placeholder="Description" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:8 }} />
-            <select value={editForm.team_lead_id} onChange={e=>setEditForm(f=>({...f,team_lead_id:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }}>
-              <option value="">-- No Lead --</option>
-              {data.members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-            <button onClick={saveEdit} style={{ background:C.success, border:"none", color:"#fff", padding:"7px 16px", borderRadius:6, fontSize:12, cursor:"pointer", marginRight:6, fontWeight:600 }}>Save</button>
-            <button onClick={()=>{setEditId(null);setEditForm(null)}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"7px 16px", borderRadius:6, fontSize:12, cursor:"pointer" }}>Cancel</button>
-          </div>
-        ) : (
-          <div key={t.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 18px", display:"flex", alignItems:"center", gap:14 }}>
-            <div style={{ width:44, height:44, borderRadius:10, background:getColor(t.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, color:"#fff" }}>👥</div>
-            <div style={{ flex:1, cursor:"pointer" }} onClick={()=>setSelectedTeam(t.id)}>
-              <p style={{ color:C.text, fontSize:15, fontWeight:600 }}>{t.name}</p>
-              <p style={{ color:C.textMuted, fontSize:12 }}>{t.description || "No description"} · 👤 {data.members.filter(m=>m.team_id===t.id).length} · 📊 {data.accounts.filter(a=>a.team_id===t.id).length}</p>
-            </div>
-            <button onClick={()=>setSelectedTeam(t.id)} style={{ background:C.primaryLight, border:"none", color:C.primary, padding:"7px 14px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>Open →</button>
-            <button onClick={()=>{setEditId(t.id); setEditForm({name:t.name, description:t.description||"", team_lead_id:t.team_lead_id||""})}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"7px 12px", borderRadius:6, fontSize:12, cursor:"pointer" }}>Edit</button>
-            <button onClick={()=>deleteTeam(t.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, padding:"7px 12px", borderRadius:6, fontSize:12, cursor:"pointer" }}>✕</button>
-          </div>
-        ))}
-        {data.teams.length === 0 && !adding && (
-          <div style={{ background:C.surface, border:`1px dashed ${C.border}`, borderRadius:12, padding:30, textAlign:"center" }}>
-            <p style={{ color:C.textMuted, fontSize:14 }}>Koi team nahi hai. "+ Add Team" click karo.</p>
-          </div>
-        )}
-      </div>
     </div>
   )
 }
@@ -876,8 +931,8 @@ function AdminMembers({ data, refresh }) {
             <input value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))} placeholder="Role" style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box" }} />
             <input type="time" value={form.checkin_time} onChange={e=>setForm(f=>({...f,checkin_time:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box" }} />
             <select value={form.team_id} onChange={e=>setForm(f=>({...f,team_id:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box" }}>
-              <option value="">-- No Team --</option>
-              {data.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              <option value="">-- No Team/CGP --</option>
+              {data.teams.map(t => <option key={t.id} value={t.id}>{t.group_type==='cgp'?"🚀 ":""}{t.name}</option>)}
             </select>
           </div>
           <button onClick={addMember} style={{ background:C.primary, border:"none", color:"#fff", padding:"10px 24px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>Save Member</button>
@@ -893,8 +948,8 @@ function AdminMembers({ data, refresh }) {
               <input value={editForm.role} onChange={e=>setEditForm(f=>({...f,role:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
               <input type="time" value={editForm.checkin_time} onChange={e=>setEditForm(f=>({...f,checkin_time:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
               <select value={editForm.team_id} onChange={e=>setEditForm(f=>({...f,team_id:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
-                <option value="">-- No Team --</option>
-                {data.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                <option value="">-- No Team/CGP --</option>
+                {data.teams.map(t => <option key={t.id} value={t.id}>{t.group_type==='cgp'?"🚀 ":""}{t.name}</option>)}
               </select>
             </div>
             <button onClick={saveEdit} style={{ background:C.primary, border:"none", color:"#fff", padding:"8px 18px", borderRadius:6, fontSize:13, cursor:"pointer", fontWeight:600, marginRight:8 }}>Save</button>
@@ -905,7 +960,7 @@ function AdminMembers({ data, refresh }) {
             <div style={{ width:40, height:40, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
             <div style={{ flex:1 }}>
               <p style={{ color:C.text, fontWeight:600, fontSize:14 }}>{m.name} {m.is_team_lead && <span style={{background:C.warningLight, color:C.warning, fontSize:10, padding:"2px 6px", borderRadius:4, marginLeft:4}}>👑 LEAD</span>}</p>
-              <p style={{ color:C.textMuted, fontSize:12 }}>{m.email} · {m.role} · 🕐 {m.checkin_time} · {m.team_id ? `📁 ${data.teams.find(t=>t.id===m.team_id)?.name || "Team"}` : "❌ No team"}</p>
+              <p style={{ color:C.textMuted, fontSize:12 }}>{m.email} · {m.role} · 🕐 {m.checkin_time} · {m.team_id ? `📁 ${data.teams.find(t=>t.id===m.team_id)?.name || "Group"}` : "❌ No group"}</p>
             </div>
             <button onClick={()=>{setEditId(m.id); setEditForm({name:m.name, email:m.email, password:m.password, role:m.role, checkin_time:m.checkin_time, team_id:m.team_id||""})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>Edit</button>
             <button onClick={()=>deleteMember(m.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer" }}>✕</button>
@@ -1109,18 +1164,21 @@ function TeamLeadDashboard({ user, onLogout }) {
   if (!team) return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
       <div style={{ textAlign:"center" }}>
-        <p style={{ color:C.textMuted, fontSize:14, marginBottom:14 }}>Aap kisi team ke Lead nahi hain abhi.</p>
+        <p style={{ color:C.textMuted, fontSize:14, marginBottom:14 }}>Aap kisi group ke Lead nahi hain abhi.</p>
         <button onClick={onLogout} style={{ background:C.primary, border:"none", color:"#fff", padding:"9px 20px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>Logout</button>
       </div>
     </div>
   )
 
+  const isCgp = team.group_type === 'cgp'
+
   const tabs = [
     { id:"home", label:"Home", icon:"🏠" },
-    { id:"team", label:"My Team", icon:"👥" },
+    { id:"team", label:isCgp?"My CGP":"My Team", icon:isCgp?"🚀":"👥" },
     { id:"accounts", label:"TikTok Sheet", icon:"📊" },
     { id:"links", label:"Links", icon:"🔗" },
     { id:"niche", label:"Niche Ideas", icon:"💡" },
+    { id:"voiceover", label:"Voiceover Ideas", icon:"🎙️" },
     { id:"checkin", label:"Attendance", icon:"🕐" },
     { id:"tasks", label:"My Tasks", icon:"✅" },
     { id:"report", label:"Report", icon:"📋" },
@@ -1133,7 +1191,7 @@ function TeamLeadDashboard({ user, onLogout }) {
           <div style={{ width:32, height:32, background:getColor(user.id), borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", fontWeight:600 }}>{user.avatar}</div>
           <div>
             <p style={{ color:C.text, fontSize:14, fontWeight:600 }}>{user.name} 👑</p>
-            <p style={{ color:C.textMuted, fontSize:11 }}>Team Lead · {team.name}</p>
+            <p style={{ color:C.textMuted, fontSize:11 }}>{isCgp?"CGP":"Team"} Lead · {team.name}</p>
           </div>
         </div>
         <button onClick={onLogout} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, fontSize:13, padding:"7px 16px", borderRadius:8, cursor:"pointer" }}>Logout</button>
@@ -1141,7 +1199,7 @@ function TeamLeadDashboard({ user, onLogout }) {
       <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 20px", display:"flex", gap:4, overflowX:"auto" }}>
         {tabs.map(t => (
           <button key={t.id} onClick={()=>setTab(t.id)}
-            style={{ background:"transparent", border:"none", borderBottom:tab===t.id?`2px solid ${C.primary}`:"2px solid transparent", color:tab===t.id?C.primary:C.textMuted, padding:"14px 14px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap", fontWeight:tab===t.id?600:500 }}>
+            style={{ background:"transparent", border:"none", borderBottom:tab===t.id?`2px solid ${C.primary}`:"2px solid transparent", color:tab===t.id?C.primary:C.textMuted, padding:"14px 12px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap", fontWeight:tab===t.id?600:500 }}>
             {t.icon} {t.label}
           </button>
         ))}
@@ -1153,7 +1211,7 @@ function TeamLeadDashboard({ user, onLogout }) {
             <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{team.description || "—"}</p>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12 }}>
               <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
-                <p style={{ color:C.textMuted, fontSize:12 }}>Team Members</p>
+                <p style={{ color:C.textMuted, fontSize:12 }}>Members</p>
                 <p style={{ color:C.purple, fontSize:24, fontWeight:700 }}>{members.filter(m=>m.team_id===team.id).length}</p>
               </div>
               <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
@@ -1169,8 +1227,9 @@ function TeamLeadDashboard({ user, onLogout }) {
         )}
         {tab==="team" && <TeamMembersManage teamId={team.id} allMembers={members} refresh={refresh} canManage={true} />}
         {tab==="accounts" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📊 TikTok Accounts</h2><TikTokSheet teamId={team.id} canEdit={true} /></div>}
-        {tab==="links" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🔗 Team Links</h2><TeamLinks teamId={team.id} canEdit={true} /></div>}
-        {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas</h2><NicheIdeas user={user} /></div>}
+        {tab==="links" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🔗 Links</h2><TeamLinks teamId={team.id} canEdit={true} /></div>}
+        {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas</h2><IdeasBoard user={user} table="niche_ideas" title="Niche Ideas Board" emoji="💡" /></div>}
+        {tab==="voiceover" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🎙️ Voiceover Ideas</h2><IdeasBoard user={user} table="voiceover_ideas" title="Voiceover Ideas Board" emoji="🎙️" /></div>}
         {tab==="checkin" && <MemberCheckin data={myData} user={user} refresh={refresh} />}
         {tab==="tasks" && <MemberTasks data={myData} refresh={refresh} />}
         {tab==="report" && <MemberReport data={myData} user={user} refresh={refresh} />}
@@ -1206,14 +1265,17 @@ function MemberDashboard({ user, onLogout }) {
 
   if (loading) return <Loader />
 
+  const isCgp = data.team?.group_type === 'cgp'
+
   const tabs = [
     { id:"home", label:"Home", icon:"🏠" },
     { id:"checkin", label:"Attendance", icon:"🕐" },
     { id:"tasks", label:"My Tasks", icon:"✅" },
     { id:"report", label:"Daily Report", icon:"📋" },
     { id:"niche", label:"Niche Ideas", icon:"💡" },
+    { id:"voiceover", label:"Voiceover Ideas", icon:"🎙️" },
   ]
-  if (user.teamId) tabs.splice(4, 0, { id:"team", label:"My Team", icon:"👥" })
+  if (user.teamId) tabs.splice(4, 0, { id:"team", label:isCgp?"My CGP":"My Team", icon:isCgp?"🚀":"👥" })
 
   return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column" }}>
@@ -1230,7 +1292,7 @@ function MemberDashboard({ user, onLogout }) {
       <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 20px", display:"flex", gap:4, overflowX:"auto" }}>
         {tabs.map(t => (
           <button key={t.id} onClick={()=>setTab(t.id)}
-            style={{ background:"transparent", border:"none", borderBottom:tab===t.id?`2px solid ${C.primary}`:"2px solid transparent", color:tab===t.id?C.primary:C.textMuted, padding:"14px 14px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap", fontWeight:tab===t.id?600:500 }}>
+            style={{ background:"transparent", border:"none", borderBottom:tab===t.id?`2px solid ${C.primary}`:"2px solid transparent", color:tab===t.id?C.primary:C.textMuted, padding:"14px 12px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap", fontWeight:tab===t.id?600:500 }}>
             {t.icon} {t.label}
           </button>
         ))}
@@ -1241,7 +1303,8 @@ function MemberDashboard({ user, onLogout }) {
         {tab==="tasks" && <MemberTasks data={data} refresh={refresh} />}
         {tab==="report" && <MemberReport data={data} user={user} refresh={refresh} />}
         {tab==="team" && <MemberTeamView data={data} />}
-        {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas</h2><NicheIdeas user={user} /></div>}
+        {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas</h2><IdeasBoard user={user} table="niche_ideas" title="Niche Ideas Board" emoji="💡" /></div>}
+        {tab==="voiceover" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🎙️ Voiceover Ideas</h2><IdeasBoard user={user} table="voiceover_ideas" title="Voiceover Ideas Board" emoji="🎙️" /></div>}
       </div>
     </div>
   )
@@ -1256,7 +1319,7 @@ function MemberHome({ data, user }) {
   return (
     <div>
       <h2 style={{ color:C.text, fontSize:22, fontWeight:700 }}>Assalam u Alaikum, {user.name.split(" ")[0]}! 👋</h2>
-      <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{td}{data.team && ` · Team: ${data.team.name}`}</p>
+      <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{td}{data.team && ` · ${data.team.name}`}</p>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12 }}>
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
           <p style={{ color:C.textMuted, fontSize:12 }}>Attendance</p>
@@ -1437,10 +1500,11 @@ function MemberReport({ data, user, refresh }) {
 }
 
 function MemberTeamView({ data }) {
-  if (!data.team) return <p style={{ color:C.textMuted, fontSize:14 }}>Aap kisi team mein nahi hain.</p>
+  if (!data.team) return <p style={{ color:C.textMuted, fontSize:14 }}>Aap kisi group mein nahi hain.</p>
+  const isCgp = data.team.group_type === 'cgp'
   return (
     <div>
-      <h2 style={{ color:C.text, fontSize:22, fontWeight:700 }}>👥 {data.team.name}</h2>
+      <h2 style={{ color:C.text, fontSize:22, fontWeight:700 }}>{isCgp?"🚀":"👥"} {data.team.name}</h2>
       <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{data.team.description || "—"}</p>
       
       <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginBottom:10 }}>Members</h3>
@@ -1460,7 +1524,7 @@ function MemberTeamView({ data }) {
       <p style={{ color:C.textMuted, fontSize:12, marginBottom:10 }}>💡 Aap sirf Status toggle kar sakte hain.</p>
       <TikTokSheet teamId={data.team.id} canEdit={false} />
 
-      <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:10 }}>🔗 Team Links</h3>
+      <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:10 }}>🔗 Links</h3>
       <TeamLinks teamId={data.team.id} canEdit={false} />
     </div>
   )
