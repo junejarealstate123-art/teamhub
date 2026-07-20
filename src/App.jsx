@@ -53,6 +53,9 @@ export default function App() {
     const userData = {
       id: data.id, name: data.name, email: data.email, role: data.role,
       checkinTime: data.checkin_time,
+      endTime: data.end_time || "18:00",
+      graceMinutes: data.grace_minutes ?? 15,
+      jobDescription: data.job_description || "",
       avatar: data.avatar || data.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase(),
       isAdmin: data.is_admin, isTeamLead: data.is_team_lead,
       teamId: data.team_id, cgpId: data.cgp_id
@@ -490,17 +493,76 @@ function IdeasBoard({ user, table, title, emoji }) {
   )
 }
 
-// ============ SHARED: Group Members Management (Team or CGP) ============
+// ============ SHARED: Member Form Fields (for both admin + team lead create/edit) ============
+function MemberFormFields({ form, setForm, showTeam=false, showCgp=false, teamGroups=[], cgpGroups=[] }) {
+  return (
+    <>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+        <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Full Name *" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+        <input value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} placeholder="Email *" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+        <input value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} placeholder="Password (optional)" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+        <input value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))} placeholder="Role *" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+      </div>
+      <div style={{ background:C.primaryLight, borderRadius:8, padding:12, marginBottom:10 }}>
+        <p style={{ color:C.primary, fontSize:12, fontWeight:600, marginBottom:8 }}>⏰ Timing & Job</p>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:8 }}>
+          <div>
+            <label style={{ color:C.textMuted, fontSize:11, display:"block", marginBottom:3 }}>Start Time</label>
+            <input type="time" value={form.checkin_time} onChange={e=>setForm(f=>({...f,checkin_time:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+          </div>
+          <div>
+            <label style={{ color:C.textMuted, fontSize:11, display:"block", marginBottom:3 }}>End Time</label>
+            <input type="time" value={form.end_time} onChange={e=>setForm(f=>({...f,end_time:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+          </div>
+          <div>
+            <label style={{ color:C.textMuted, fontSize:11, display:"block", marginBottom:3 }}>Grace Period</label>
+            <select value={form.grace_minutes} onChange={e=>setForm(f=>({...f,grace_minutes:parseInt(e.target.value)}))} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
+              <option value={5}>5 min</option>
+              <option value={10}>10 min</option>
+              <option value={15}>15 min</option>
+              <option value={20}>20 min</option>
+              <option value={30}>30 min</option>
+            </select>
+          </div>
+        </div>
+        <label style={{ color:C.textMuted, fontSize:11, display:"block", marginBottom:3 }}>Job Description (e.g. "10 TikTok videos daily edit")</label>
+        <textarea value={form.job_description||""} onChange={e=>setForm(f=>({...f,job_description:e.target.value}))} rows={2} placeholder="What is this member's job?" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", resize:"vertical", fontFamily:"inherit" }} />
+      </div>
+      {(showTeam || showCgp) && (
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+          {showTeam && (
+            <select value={form.team_id} onChange={e=>setForm(f=>({...f,team_id:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
+              <option value="">-- No Team --</option>
+              {teamGroups.map(t => <option key={t.id} value={t.id}>👥 {t.name}</option>)}
+            </select>
+          )}
+          {showCgp && (
+            <select value={form.cgp_id} onChange={e=>setForm(f=>({...f,cgp_id:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
+              <option value="">-- No CGP --</option>
+              {cgpGroups.map(t => <option key={t.id} value={t.id}>🚀 {t.name}</option>)}
+            </select>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
+const emptyMemberForm = () => ({
+  name:"", email:"", password:"", role:"",
+  checkin_time:"09:00", end_time:"18:00", grace_minutes:15,
+  job_description:"", team_id:"", cgp_id:""
+})
+
+// ============ SHARED: Group Members Management ============
 function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage }) {
-  // groupMode: 'team' or 'cgp'
   const idField = groupMode === 'cgp' ? 'cgp_id' : 'team_id'
   const [addMode, setAddMode] = useState(null)
   const [existingSelect, setExistingSelect] = useState("")
-  const [newForm, setNewForm] = useState({ name:"", email:"", password:"", role:"", checkin_time:"09:00" })
+  const [newForm, setNewForm] = useState(emptyMemberForm())
   const [credShow, setCredShow] = useState(null)
 
   const groupMembers = allMembers.filter(m => m[idField] === groupId)
-  // Available: not in THIS group already, and not admin
   const availableMembers = allMembers.filter(m => m[idField] !== groupId && !m.is_admin)
 
   const addExisting = async () => {
@@ -517,15 +579,17 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
     const avatar = newForm.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()
     const insertData = {
       id, name:newForm.name, email:newForm.email.toLowerCase(), password,
-      role:newForm.role, checkin_time:newForm.checkin_time, avatar,
-      is_admin:false, is_team_lead:false,
+      role:newForm.role, checkin_time:newForm.checkin_time,
+      end_time:newForm.end_time, grace_minutes:newForm.grace_minutes,
+      job_description:newForm.job_description||null,
+      avatar, is_admin:false, is_team_lead:false,
       [idField]: groupId
     }
     const { error } = await supabase.from('members').insert(insertData)
     if (error) return alert("Error: " + error.message)
     await supabase.from('member_stats').insert({ member_id:id, late_count:0, strikes:0 })
     setCredShow({ email:newForm.email, password, name:newForm.name })
-    setNewForm({ name:"", email:"", password:"", role:"", checkin_time:"09:00" })
+    setNewForm(emptyMemberForm())
     setAddMode(null)
     refresh()
   }
@@ -533,7 +597,6 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
   const removeFromGroup = async (memberId) => {
     if (!confirm(`${groupMode === 'cgp' ? 'CGP' : 'Team'} se remove karein?`)) return
     const updateData = { [idField]:null }
-    // Only unset team_lead if removing from team
     if (groupMode === 'team') updateData.is_team_lead = false
     await supabase.from('members').update(updateData).eq('id', memberId)
     refresh()
@@ -569,7 +632,6 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
             <p style={{ color:C.textMuted, fontSize:12 }}>Koi available member nahi hai.</p>
           ) : (
             <>
-              <p style={{ color:C.textMuted, fontSize:11, marginBottom:8 }}>💡 Member ki mojooda team change nahi hogi — sirf {groupMode==='cgp'?'CGP':'team'} assign hogi.</p>
               <select value={existingSelect} onChange={e=>setExistingSelect(e.target.value)} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }}>
                 <option value="">-- Select Member --</option>
                 {availableMembers.map(m => <option key={m.id} value={m.id}>{m.name} ({m.role})</option>)}
@@ -582,14 +644,7 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
 
       {addMode === 'new' && (
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:14, marginBottom:12 }}>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
-            <input value={newForm.name} onChange={e=>setNewForm(f=>({...f,name:e.target.value}))} placeholder="Full Name *" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
-            <input value={newForm.email} onChange={e=>setNewForm(f=>({...f,email:e.target.value}))} placeholder="Email *" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
-            <input value={newForm.password} onChange={e=>setNewForm(f=>({...f,password:e.target.value}))} placeholder="Password (optional)" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
-            <input value={newForm.role} onChange={e=>setNewForm(f=>({...f,role:e.target.value}))} placeholder="Role *" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
-          </div>
-          <input type="time" value={newForm.checkin_time} onChange={e=>setNewForm(f=>({...f,checkin_time:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, marginBottom:10 }} />
-          <br/>
+          <MemberFormFields form={newForm} setForm={setNewForm} />
           <button onClick={createNew} style={{ background:C.success, border:"none", color:"#fff", padding:"7px 16px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>Create Member</button>
         </div>
       )}
@@ -602,7 +657,7 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
             <div style={{ width:32, height:32, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
             <div style={{ flex:1 }}>
               <p style={{ color:C.text, fontSize:13, fontWeight:600 }}>{m.name} {m.is_team_lead && groupMode==='team' && "👑"}</p>
-              <p style={{ color:C.textMuted, fontSize:11 }}>{m.role} · {m.email}</p>
+              <p style={{ color:C.textMuted, fontSize:11 }}>{m.role} · 🕐 {m.checkin_time}-{m.end_time||"18:00"}</p>
             </div>
             {canManage && (
               <button onClick={()=>removeFromGroup(m.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:11, padding:"5px 10px", borderRadius:6, cursor:"pointer" }}>Remove</button>
@@ -873,7 +928,7 @@ function AdminOverview({ data }) {
 }
 
 function AdminMembers({ data, refresh }) {
-  const [form, setForm] = useState({ name:"", email:"", password:"", role:"", checkin_time:"09:00", team_id:"", cgp_id:"" })
+  const [form, setForm] = useState(emptyMemberForm())
   const [adding, setAdding] = useState(false)
   const [credShow, setCredShow] = useState(null)
   const [editId, setEditId] = useState(null)
@@ -887,11 +942,18 @@ function AdminMembers({ data, refresh }) {
     const password = form.password || genPassword()
     const id = "m"+Date.now()
     const avatar = form.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()
-    const { error } = await supabase.from('members').insert({ id, name:form.name, email:form.email.toLowerCase(), password, role:form.role, checkin_time:form.checkin_time, avatar, is_admin:false, is_team_lead:false, team_id:form.team_id||null, cgp_id:form.cgp_id||null })
+    const { error } = await supabase.from('members').insert({
+      id, name:form.name, email:form.email.toLowerCase(), password,
+      role:form.role, checkin_time:form.checkin_time,
+      end_time:form.end_time, grace_minutes:form.grace_minutes,
+      job_description:form.job_description||null,
+      avatar, is_admin:false, is_team_lead:false,
+      team_id:form.team_id||null, cgp_id:form.cgp_id||null
+    })
     if (error) return alert("Error: " + error.message)
     await supabase.from('member_stats').insert({ member_id:id, late_count:0, strikes:0 })
     setCredShow({ email:form.email, password, name:form.name })
-    setForm({ name:"", email:"", password:"", role:"", checkin_time:"09:00", team_id:"", cgp_id:"" })
+    setForm(emptyMemberForm())
     setAdding(false)
     refresh()
   }
@@ -899,7 +961,13 @@ function AdminMembers({ data, refresh }) {
   const saveEdit = async () => {
     if (!editForm.name||!editForm.email||!editForm.role) return alert("Sab zaroori!")
     const avatar = editForm.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()
-    await supabase.from('members').update({ name:editForm.name, email:editForm.email.toLowerCase(), password:editForm.password, role:editForm.role, checkin_time:editForm.checkin_time, avatar, team_id:editForm.team_id||null, cgp_id:editForm.cgp_id||null }).eq('id', editId)
+    await supabase.from('members').update({
+      name:editForm.name, email:editForm.email.toLowerCase(), password:editForm.password,
+      role:editForm.role, checkin_time:editForm.checkin_time,
+      end_time:editForm.end_time, grace_minutes:editForm.grace_minutes,
+      job_description:editForm.job_description||null,
+      avatar, team_id:editForm.team_id||null, cgp_id:editForm.cgp_id||null
+    }).eq('id', editId)
     setEditId(null); setEditForm(null)
     refresh()
   }
@@ -930,44 +998,14 @@ function AdminMembers({ data, refresh }) {
       )}
       {adding && (
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:20, marginBottom:20 }}>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:12 }}>
-            <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Full Name" style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box" }} />
-            <input value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} placeholder="Email" style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box" }} />
-            <input value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} placeholder="Password (optional)" style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box" }} />
-            <input value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))} placeholder="Role" style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box" }} />
-            <input type="time" value={form.checkin_time} onChange={e=>setForm(f=>({...f,checkin_time:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box" }} />
-            <div /> {/* spacer */}
-            <select value={form.team_id} onChange={e=>setForm(f=>({...f,team_id:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box" }}>
-              <option value="">-- No Team --</option>
-              {teamGroups.map(t => <option key={t.id} value={t.id}>👥 {t.name}</option>)}
-            </select>
-            <select value={form.cgp_id} onChange={e=>setForm(f=>({...f,cgp_id:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, boxSizing:"border-box" }}>
-              <option value="">-- No CGP --</option>
-              {cgpGroups.map(t => <option key={t.id} value={t.id}>🚀 {t.name}</option>)}
-            </select>
-          </div>
+          <MemberFormFields form={form} setForm={setForm} showTeam={true} showCgp={true} teamGroups={teamGroups} cgpGroups={cgpGroups} />
           <button onClick={addMember} style={{ background:C.primary, border:"none", color:"#fff", padding:"10px 24px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>Save Member</button>
         </div>
       )}
       <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
         {data.members.map(m => editId === m.id ? (
           <div key={m.id} style={{ background:C.surface, border:`2px solid ${C.primary}`, borderRadius:12, padding:18 }}>
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
-              <input value={editForm.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
-              <input value={editForm.email} onChange={e=>setEditForm(f=>({...f,email:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
-              <input value={editForm.password} onChange={e=>setEditForm(f=>({...f,password:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
-              <input value={editForm.role} onChange={e=>setEditForm(f=>({...f,role:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
-              <input type="time" value={editForm.checkin_time} onChange={e=>setEditForm(f=>({...f,checkin_time:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
-              <div />
-              <select value={editForm.team_id} onChange={e=>setEditForm(f=>({...f,team_id:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
-                <option value="">-- No Team --</option>
-                {teamGroups.map(t => <option key={t.id} value={t.id}>👥 {t.name}</option>)}
-              </select>
-              <select value={editForm.cgp_id} onChange={e=>setEditForm(f=>({...f,cgp_id:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
-                <option value="">-- No CGP --</option>
-                {cgpGroups.map(t => <option key={t.id} value={t.id}>🚀 {t.name}</option>)}
-              </select>
-            </div>
+            <MemberFormFields form={editForm} setForm={setEditForm} showTeam={true} showCgp={true} teamGroups={teamGroups} cgpGroups={cgpGroups} />
             <button onClick={saveEdit} style={{ background:C.primary, border:"none", color:"#fff", padding:"8px 18px", borderRadius:6, fontSize:13, cursor:"pointer", fontWeight:600, marginRight:8 }}>Save</button>
             <button onClick={()=>{setEditId(null);setEditForm(null)}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"8px 18px", borderRadius:6, fontSize:13, cursor:"pointer" }}>Cancel</button>
           </div>
@@ -977,13 +1015,13 @@ function AdminMembers({ data, refresh }) {
             <div style={{ flex:1 }}>
               <p style={{ color:C.text, fontWeight:600, fontSize:14 }}>{m.name} {m.is_team_lead && <span style={{background:C.warningLight, color:C.warning, fontSize:10, padding:"2px 6px", borderRadius:4, marginLeft:4}}>👑 LEAD</span>}</p>
               <p style={{ color:C.textMuted, fontSize:12 }}>
-                {m.email} · {m.role} · 🕐 {m.checkin_time}
+                {m.email} · {m.role} · 🕐 {m.checkin_time}-{m.end_time||"18:00"} (grace {m.grace_minutes ?? 15}m)
                 {m.team_id && ` · 👥 ${data.teams.find(t=>t.id===m.team_id)?.name || "Team"}`}
                 {m.cgp_id && ` · 🚀 ${data.teams.find(t=>t.id===m.cgp_id)?.name || "CGP"}`}
-                {!m.team_id && !m.cgp_id && " · ❌ No group"}
               </p>
+              {m.job_description && <p style={{ color:C.primary, fontSize:11, marginTop:2 }}>💼 {m.job_description}</p>}
             </div>
-            <button onClick={()=>{setEditId(m.id); setEditForm({name:m.name, email:m.email, password:m.password, role:m.role, checkin_time:m.checkin_time, team_id:m.team_id||"", cgp_id:m.cgp_id||""})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>Edit</button>
+            <button onClick={()=>{setEditId(m.id); setEditForm({name:m.name, email:m.email, password:m.password, role:m.role, checkin_time:m.checkin_time, end_time:m.end_time||"18:00", grace_minutes:m.grace_minutes??15, job_description:m.job_description||"", team_id:m.team_id||"", cgp_id:m.cgp_id||""})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>Edit</button>
             <button onClick={()=>deleteMember(m.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer" }}>✕</button>
           </div>
         ))}
@@ -1075,7 +1113,7 @@ function AdminAttendance({ data, refresh }) {
               <div style={{ width:38, height:38, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
               <div style={{ flex:1 }}>
                 <p style={{ color:C.text, fontWeight:600, fontSize:14 }}>{m.name}</p>
-                <p style={{ color:C.textMuted, fontSize:12 }}>Fixed: {m.checkin_time} · Lates: {lc} · Strikes: {s}</p>
+                <p style={{ color:C.textMuted, fontSize:12 }}>🕐 {m.checkin_time}-{m.end_time||"18:00"} · Grace: {m.grace_minutes ?? 15}m · Lates: {lc} · Strikes: {s}</p>
               </div>
               {a ? <span style={{ background:a.status==="ontime"?C.successLight:C.warningLight, color:a.status==="ontime"?C.success:C.warning, fontSize:12, padding:"4px 10px", borderRadius:20, fontWeight:600 }}>{a.status==="ontime"?"✓ "+a.checkIn:"⚠ "+a.checkIn}</span>
                : <span style={{ background:C.dangerLight, color:C.danger, fontSize:12, padding:"4px 10px", borderRadius:20, fontWeight:600 }}>✗ Absent</span>}
@@ -1150,6 +1188,25 @@ function AdminReports({ data, user, refresh }) {
   )
 }
 
+// ============ SHIFT + JOB CARD (shown on member/team-lead home) ============
+function ShiftJobCard({ user }) {
+  return (
+    <div style={{ background:`linear-gradient(135deg, ${C.primary}, ${C.purple})`, borderRadius:14, padding:20, marginBottom:20, color:"#fff" }}>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+        <div>
+          <p style={{ fontSize:11, opacity:0.85, marginBottom:4, fontWeight:500 }}>🕐 YOUR SHIFT</p>
+          <p style={{ fontSize:22, fontWeight:700 }}>{user.checkinTime} → {user.endTime}</p>
+          <p style={{ fontSize:11, opacity:0.85, marginTop:2 }}>Grace period: {user.graceMinutes} min</p>
+        </div>
+        <div>
+          <p style={{ fontSize:11, opacity:0.85, marginBottom:4, fontWeight:500 }}>💼 YOUR JOB</p>
+          <p style={{ fontSize:14, fontWeight:600, lineHeight:1.4 }}>{user.jobDescription || "Job description set nahi hai — admin se contact karein."}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ============ TEAM LEAD DASHBOARD ============
 function TeamLeadDashboard({ user, onLogout }) {
   const [tab, setTab] = useState("home")
@@ -1193,13 +1250,9 @@ function TeamLeadDashboard({ user, onLogout }) {
     </div>
   )
 
-  // Primary group = whichever they belong to (team preferred)
   const primary = team || cgp
-  const primaryMode = team ? 'team' : 'cgp'
 
-  const tabs = [
-    { id:"home", label:"Home", icon:"🏠" },
-  ]
+  const tabs = [{ id:"home", label:"Home", icon:"🏠" }]
   if (team) {
     tabs.push({ id:"team", label:"My Team", icon:"👥" })
     tabs.push({ id:"team_accounts", label:"Team Accounts", icon:"📊" })
@@ -1241,6 +1294,7 @@ function TeamLeadDashboard({ user, onLogout }) {
           <div>
             <h2 style={{ color:C.text, fontSize:22, fontWeight:700, marginBottom:4 }}>👑 Welcome, {user.name.split(" ")[0]}!</h2>
             <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{today()}</p>
+            <ShiftJobCard user={user} />
             <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:12 }}>
               {team && (
                 <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
@@ -1369,6 +1423,9 @@ function MemberHome({ data, user }) {
     <div>
       <h2 style={{ color:C.text, fontSize:22, fontWeight:700 }}>Assalam u Alaikum, {user.name.split(" ")[0]}! 👋</h2>
       <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{td}</p>
+      
+      <ShiftJobCard user={user} />
+      
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12 }}>
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
           <p style={{ color:C.textMuted, fontSize:12 }}>Attendance</p>
@@ -1384,18 +1441,6 @@ function MemberHome({ data, user }) {
           <p style={{ color:C.textMuted, fontSize:12 }}>Daily Report</p>
           <p style={{ color:reportDone?C.success:C.danger, fontSize:18, fontWeight:700 }}>{reportDone?"✓ Submitted":"Pending"}</p>
         </div>
-        {data.team && (
-          <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
-            <p style={{ color:C.textMuted, fontSize:12 }}>👥 My Team</p>
-            <p style={{ color:C.purple, fontSize:16, fontWeight:700 }}>{data.team.name}</p>
-          </div>
-        )}
-        {data.cgp && (
-          <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
-            <p style={{ color:C.textMuted, fontSize:12 }}>🚀 My CGP</p>
-            <p style={{ color:C.orange, fontSize:16, fontWeight:700 }}>{data.cgp.name}</p>
-          </div>
-        )}
       </div>
     </div>
   )
@@ -1412,16 +1457,19 @@ function MemberCheckin({ data, user, refresh }) {
     return ()=>clearInterval(t)
   }, [])
 
-  const fixedMin = timeToMin(user.checkinTime||"09:00")
+  const startMin = timeToMin(user.checkinTime||"09:00")
+  const endMin = timeToMin(user.endTime||"18:00")
+  const graceMin = user.graceMinutes ?? 15
   const nowMin = timeToMin(now)
-  const windowOpen = nowMin >= fixedMin && nowMin <= fixedMin+15
-  const windowPast = nowMin > fixedMin+15
+  // On-time window: from start till start+grace
+  const canCheckInOntime = nowMin <= startMin + graceMin
+  const canCheckInAny = nowMin >= startMin - 30 // allow up to 30 min before start too
 
   const doCheckin = async () => {
     if (att?.checkIn) return
-    const isLate = nowMin > fixedMin
+    const isLate = nowMin > startMin + graceMin
     if (isLate && !lateReason.trim()) return alert("Late reason zaroori!")
-    await supabase.from('attendance').upsert({ member_id:user.id, date:td, check_in:now, status:isLate?"late":"ontime", reason:lateReason||null, late_by:isLate?nowMin-fixedMin:0 }, { onConflict:'member_id,date' })
+    await supabase.from('attendance').upsert({ member_id:user.id, date:td, check_in:now, status:isLate?"late":"ontime", reason:lateReason||null, late_by:isLate?nowMin-startMin:0 }, { onConflict:'member_id,date' })
     if (isLate) {
       const newLc = data.stats.lateCount + 1
       await supabase.from('member_stats').upsert({ member_id:user.id, late_count:newLc, strikes:data.stats.strikes + (newLc%9===0?1:0) }, { onConflict:'member_id' })
@@ -1436,30 +1484,24 @@ function MemberCheckin({ data, user, refresh }) {
     refresh()
   }
 
+  const isLateNow = nowMin > startMin + graceMin
+
   return (
     <div>
       <h2 style={{ color:C.text, fontSize:20, fontWeight:700 }}>Attendance</h2>
+      
+      <ShiftJobCard user={user} />
+      
       <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:28, textAlign:"center", margin:"20px 0" }}>
         <p style={{ color:C.textMuted, fontSize:13 }}>Current time</p>
         <p style={{ color:C.text, fontSize:44, fontWeight:700 }}>{now}</p>
-        <p style={{ color:C.textMuted, fontSize:13 }}>Your check-in: <strong style={{ color:C.primary }}>{user.checkinTime}</strong></p>
       </div>
       {!att?.checkIn ? (
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:24, textAlign:"center" }}>
-          {windowOpen && (
-            <div>
-              {nowMin>fixedMin && <input value={lateReason} onChange={e=>setLateReason(e.target.value)} placeholder="Late reason..." style={{ marginBottom:10, width:"100%", maxWidth:300, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", fontSize:13, boxSizing:"border-box" }} />}
-              <br/>
-              <button onClick={doCheckin} style={{ background:nowMin>fixedMin?C.warning:C.success, border:"none", color:"#fff", padding:"14px 40px", borderRadius:10, fontSize:16, fontWeight:600, cursor:"pointer" }}>{nowMin>fixedMin?"⚠ Late Check In":"✓ Check In"}</button>
-            </div>
-          )}
-          {!windowOpen && !windowPast && <p style={{ color:C.textMuted, fontSize:14 }}>Window opens in {fixedMin - nowMin} min</p>}
-          {windowPast && (
-            <div>
-              <input value={lateReason} onChange={e=>setLateReason(e.target.value)} placeholder="Reason..." style={{ width:"100%", maxWidth:300, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", fontSize:13, marginBottom:10, boxSizing:"border-box" }} />
-              <br/>
-              <button onClick={doCheckin} style={{ background:C.warning, border:"none", color:"#fff", padding:"12px 32px", borderRadius:10, fontSize:14, fontWeight:600, cursor:"pointer" }}>⚠ Late Check-in</button>
-            </div>
+          {isLateNow && <input value={lateReason} onChange={e=>setLateReason(e.target.value)} placeholder="Late reason zaroori..." style={{ marginBottom:10, width:"100%", maxWidth:300, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", fontSize:13, boxSizing:"border-box" }} />}
+          <button onClick={doCheckin} style={{ background:isLateNow?C.warning:C.success, border:"none", color:"#fff", padding:"14px 40px", borderRadius:10, fontSize:16, fontWeight:600, cursor:"pointer" }}>{isLateNow?"⚠ Late Check In":"✓ Check In"}</button>
+          {!isLateNow && nowMin < startMin && (
+            <p style={{ color:C.textMuted, fontSize:12, marginTop:10 }}>Aap {startMin - nowMin} min pehle check-in kar rahe hain</p>
           )}
         </div>
       ) : (
@@ -1575,7 +1617,7 @@ function MemberGroupView({ group, groupMembers, groupMode }) {
             <div style={{ width:32, height:32, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
             <div style={{ flex:1 }}>
               <p style={{ color:C.text, fontSize:13, fontWeight:600 }}>{m.name} {m.is_team_lead && groupMode==='team' && "👑"}</p>
-              <p style={{ color:C.textMuted, fontSize:11 }}>{m.role}</p>
+              <p style={{ color:C.textMuted, fontSize:11 }}>{m.role} · 🕐 {m.checkin_time}-{m.end_time||"18:00"}</p>
             </div>
           </div>
         ))}
