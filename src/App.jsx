@@ -1651,8 +1651,8 @@ function MemberCheckin({ data, user, refresh }) {
   const isLateNow = nowMin > startMin + graceMin
 
   return (
-    <div>
-      <h2 style={{ color:C.text, fontSize:20, fontWeight:700 }}>Attendance</h2>
+    <div style={{ maxWidth:800, margin:"0 auto" }}>
+      <h2 style={{ color:C.text, fontSize:20, fontWeight:700, textAlign:"center" }}>Attendance</h2>
       
       <ShiftJobCard user={user} />
       
