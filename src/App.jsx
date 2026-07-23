@@ -1,8 +1,32 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from './supabase'
 
-const today = () => new Date().toISOString().split("T")[0]
-const nowHHMM = () => { const d = new Date(); return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}` }
+// ============ TIMEZONE: PAKISTAN (Asia/Karachi) LOCKED ============
+const TZ = 'Asia/Karachi'
+
+const today = () => {
+  // Get date in Pakistan timezone as YYYY-MM-DD
+  const d = new Date()
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year:'numeric', month:'2-digit', day:'2-digit' }).format(d)
+  return parts // en-CA gives YYYY-MM-DD
+}
+
+const nowHHMM = () => {
+  // Get HH:MM in Pakistan timezone (24hr for calculations)
+  const d = new Date()
+  return new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour:'2-digit', minute:'2-digit', hour12:false }).format(d)
+}
+
+// Convert HH:MM (24hr) to "9:00 AM" style
+const to12 = (hhmm) => {
+  if (!hhmm) return "—"
+  const [h, m] = hhmm.split(":").map(Number)
+  if (isNaN(h) || isNaN(m)) return hhmm
+  const period = h >= 12 ? "PM" : "AM"
+  const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h
+  return `${displayH}:${String(m).padStart(2,"0")} ${period}`
+}
+
 const timeToMin = (t) => { const [h,m] = t.split(":").map(Number); return h*60+m }
 const isPastDate = (d) => new Date(d) < new Date(today())
 
@@ -657,7 +681,7 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
             <div style={{ width:32, height:32, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
             <div style={{ flex:1 }}>
               <p style={{ color:C.text, fontSize:13, fontWeight:600 }}>{m.name} {m.is_team_lead && groupMode==='team' && "👑"}</p>
-              <p style={{ color:C.textMuted, fontSize:11 }}>{m.role} · 🕐 {m.checkin_time}-{m.end_time||"18:00"}</p>
+              <p style={{ color:C.textMuted, fontSize:11 }}>{m.role} · 🕐 {to12(m.checkin_time)} → {to12(m.end_time||"18:00")}</p>
             </div>
             {canManage && (
               <button onClick={()=>removeFromGroup(m.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:11, padding:"5px 10px", borderRadius:6, cursor:"pointer" }}>Remove</button>
@@ -1015,7 +1039,7 @@ function AdminMembers({ data, refresh }) {
             <div style={{ flex:1 }}>
               <p style={{ color:C.text, fontWeight:600, fontSize:14 }}>{m.name} {m.is_team_lead && <span style={{background:C.warningLight, color:C.warning, fontSize:10, padding:"2px 6px", borderRadius:4, marginLeft:4}}>👑 LEAD</span>}</p>
               <p style={{ color:C.textMuted, fontSize:12 }}>
-                {m.email} · {m.role} · 🕐 {m.checkin_time}-{m.end_time||"18:00"} (grace {m.grace_minutes ?? 15}m)
+                {m.email} · {m.role} · 🕐 {to12(m.checkin_time)} → {to12(m.end_time||"18:00")} (grace {m.grace_minutes ?? 15}m)
                 {m.team_id && ` · 👥 ${data.teams.find(t=>t.id===m.team_id)?.name || "Team"}`}
                 {m.cgp_id && ` · 🚀 ${data.teams.find(t=>t.id===m.cgp_id)?.name || "CGP"}`}
               </p>
@@ -1113,9 +1137,9 @@ function AdminAttendance({ data, refresh }) {
               <div style={{ width:38, height:38, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
               <div style={{ flex:1 }}>
                 <p style={{ color:C.text, fontWeight:600, fontSize:14 }}>{m.name}</p>
-                <p style={{ color:C.textMuted, fontSize:12 }}>🕐 {m.checkin_time}-{m.end_time||"18:00"} · Grace: {m.grace_minutes ?? 15}m · Lates: {lc} · Strikes: {s}</p>
+                <p style={{ color:C.textMuted, fontSize:12 }}>🕐 {to12(m.checkin_time)} → {to12(m.end_time||"18:00")} · Grace: {m.grace_minutes ?? 15}m · Lates: {lc} · Strikes: {s}</p>
               </div>
-              {a ? <span style={{ background:a.status==="ontime"?C.successLight:C.warningLight, color:a.status==="ontime"?C.success:C.warning, fontSize:12, padding:"4px 10px", borderRadius:20, fontWeight:600 }}>{a.status==="ontime"?"✓ "+a.checkIn:"⚠ "+a.checkIn}</span>
+              {a ? <span style={{ background:a.status==="ontime"?C.successLight:C.warningLight, color:a.status==="ontime"?C.success:C.warning, fontSize:12, padding:"4px 10px", borderRadius:20, fontWeight:600 }}>{a.status==="ontime"?"✓ "+to12(a.checkIn):"⚠ "+to12(a.checkIn)}</span>
                : <span style={{ background:C.dangerLight, color:C.danger, fontSize:12, padding:"4px 10px", borderRadius:20, fontWeight:600 }}>✗ Absent</span>}
               {(lc>0||s>0) && <button onClick={()=>reset(m.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.warning, fontSize:11, padding:"5px 10px", borderRadius:6, cursor:"pointer" }}>Reset</button>}
             </div>
@@ -1195,8 +1219,8 @@ function ShiftJobCard({ user }) {
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
         <div>
           <p style={{ fontSize:11, opacity:0.85, marginBottom:4, fontWeight:500 }}>🕐 YOUR SHIFT</p>
-          <p style={{ fontSize:22, fontWeight:700 }}>{user.checkinTime} → {user.endTime}</p>
-          <p style={{ fontSize:11, opacity:0.85, marginTop:2 }}>Grace period: {user.graceMinutes} min</p>
+          <p style={{ fontSize:22, fontWeight:700 }}>{to12(user.checkinTime)} → {to12(user.endTime)}</p>
+          <p style={{ fontSize:11, opacity:0.85, marginTop:2 }}>Grace: {user.graceMinutes} min · 🇵🇰 PKT</p>
         </div>
         <div>
           <p style={{ fontSize:11, opacity:0.85, marginBottom:4, fontWeight:500 }}>💼 YOUR JOB</p>
@@ -1453,7 +1477,7 @@ function MemberCheckin({ data, user, refresh }) {
   const att = data.attendance[td]
 
   useEffect(() => {
-    const t = setInterval(()=>setNow(nowHHMM()), 30000)
+    const t = setInterval(()=>setNow(nowHHMM()), 15000)
     return ()=>clearInterval(t)
   }, [])
 
@@ -1493,8 +1517,9 @@ function MemberCheckin({ data, user, refresh }) {
       <ShiftJobCard user={user} />
       
       <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:28, textAlign:"center", margin:"20px 0" }}>
-        <p style={{ color:C.textMuted, fontSize:13 }}>Current time</p>
-        <p style={{ color:C.text, fontSize:44, fontWeight:700 }}>{now}</p>
+        <p style={{ color:C.textMuted, fontSize:13 }}>Current time 🇵🇰 Pakistan (PKT)</p>
+        <p style={{ color:C.text, fontSize:44, fontWeight:700 }}>{to12(now)}</p>
+        <p style={{ color:C.textMuted, fontSize:11, marginTop:4 }}>Aapki shift: {to12(user.checkinTime)} → {to12(user.endTime)} (Grace: {graceMin}m)</p>
       </div>
       {!att?.checkIn ? (
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:24, textAlign:"center" }}>
@@ -1508,12 +1533,12 @@ function MemberCheckin({ data, user, refresh }) {
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:24, display:"flex", gap:16 }}>
           <div style={{ flex:1, background:C.bg, borderRadius:10, padding:14 }}>
             <p style={{ color:C.textMuted, fontSize:12 }}>Checked in</p>
-            <p style={{ color:att.status==="ontime"?C.success:C.warning, fontSize:22, fontWeight:700 }}>{att.checkIn}</p>
+            <p style={{ color:att.status==="ontime"?C.success:C.warning, fontSize:22, fontWeight:700 }}>{to12(att.checkIn)}</p>
           </div>
           {att.checkOut ? (
             <div style={{ flex:1, background:C.bg, borderRadius:10, padding:14 }}>
               <p style={{ color:C.textMuted, fontSize:12 }}>Checked out</p>
-              <p style={{ color:C.primary, fontSize:22, fontWeight:700 }}>{att.checkOut}</p>
+              <p style={{ color:C.primary, fontSize:22, fontWeight:700 }}>{to12(att.checkOut)}</p>
             </div>
           ) : (
             <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center" }}>
@@ -1617,7 +1642,7 @@ function MemberGroupView({ group, groupMembers, groupMode }) {
             <div style={{ width:32, height:32, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
             <div style={{ flex:1 }}>
               <p style={{ color:C.text, fontSize:13, fontWeight:600 }}>{m.name} {m.is_team_lead && groupMode==='team' && "👑"}</p>
-              <p style={{ color:C.textMuted, fontSize:11 }}>{m.role} · 🕐 {m.checkin_time}-{m.end_time||"18:00"}</p>
+              <p style={{ color:C.textMuted, fontSize:11 }}>{m.role} · 🕐 {to12(m.checkin_time)} → {to12(m.end_time||"18:00")}</p>
             </div>
           </div>
         ))}
