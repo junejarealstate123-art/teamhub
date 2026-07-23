@@ -74,6 +74,9 @@ export default function App() {
     const { data, error } = await supabase.from('members').select('*').eq('email', email).eq('password', loginForm.password).maybeSingle()
     if (error) { setLoginError("Connection error: " + error.message); return }
     if (!data) { setLoginError("Email ya password galat hai!"); return }
+    // Check if user is lead of ANY group (team OR cgp)
+    const { data: leadOf } = await supabase.from('teams').select('id').eq('team_lead_id', data.id)
+    const isAnyLead = (leadOf || []).length > 0
     const userData = {
       id: data.id, name: data.name, email: data.email, role: data.role,
       checkinTime: data.checkin_time,
@@ -81,8 +84,10 @@ export default function App() {
       graceMinutes: data.grace_minutes ?? 15,
       jobDescription: data.job_description || "",
       avatar: data.avatar || data.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase(),
-      isAdmin: data.is_admin, isTeamLead: data.is_team_lead,
-      teamId: data.team_id, cgpId: data.cgp_id
+      isAdmin: data.is_admin,
+      isTeamLead: !data.is_admin && (data.is_team_lead || isAnyLead),
+      teamId: data.team_id, cgpId: data.cgp_id,
+      leadOfIds: (leadOf || []).map(x => x.id)
     }
     localStorage.setItem("teamhub-user", JSON.stringify(userData))
     setUser(userData)
@@ -578,6 +583,136 @@ const emptyMemberForm = () => ({
   job_description:"", team_id:"", cgp_id:""
 })
 
+// ============ SHARED: Gmail Credentials Vault ============
+function GmailAccounts({ teamId, canEdit }) {
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showPw, setShowPw] = useState({})
+  const [form, setForm] = useState({ label:"", email:"", password:"", notes:"" })
+  const [adding, setAdding] = useState(false)
+  const [editId, setEditId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data } = await supabase.from('gmail_credentials').select('*').eq('team_id', teamId).order('created_at')
+    setItems(data || [])
+    setLoading(false)
+  }, [teamId])
+
+  useEffect(() => { load() }, [load])
+
+  const add = async () => {
+    if (!form.email.trim() || !form.password.trim()) return alert("Email aur password zaroori!")
+    await supabase.from('gmail_credentials').insert({ id:"g"+Date.now(), team_id:teamId, ...form })
+    setForm({ label:"", email:"", password:"", notes:"" })
+    setAdding(false)
+    load()
+  }
+
+  const saveEdit = async () => {
+    if (!editForm.email.trim() || !editForm.password.trim()) return alert("Email + password zaroori!")
+    await supabase.from('gmail_credentials').update(editForm).eq('id', editId)
+    setEditId(null); setEditForm(null)
+    load()
+  }
+
+  const del = async (id) => {
+    if (!confirm("Delete karein?")) return
+    await supabase.from('gmail_credentials').delete().eq('id', id)
+    load()
+  }
+
+  const copy = (text) => {
+    navigator.clipboard.writeText(text).then(() => {
+      // silent success
+    }).catch(() => alert("Copy nahi ho saka"))
+  }
+
+  if (loading) return <p style={{ color:C.textMuted, fontSize:13 }}>Loading...</p>
+
+  return (
+    <div>
+      <div style={{ background:C.dangerLight, border:`1px solid ${C.danger}`, borderRadius:8, padding:"8px 14px", marginBottom:14, fontSize:12, color:C.danger }}>
+        🔐 <strong>Sensitive credentials</strong> — sirf trusted members ke saath share karein.
+      </div>
+      {canEdit && (
+        <div style={{ marginBottom:14 }}>
+          <button onClick={()=>setAdding(!adding)} style={{ background:C.primary, border:"none", color:"#fff", padding:"8px 18px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>
+            {adding ? "Cancel" : "+ Add Gmail"}
+          </button>
+        </div>
+      )}
+      {adding && canEdit && (
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:16, marginBottom:14 }}>
+          <input value={form.label} onChange={e=>setForm(f=>({...f,label:e.target.value}))} placeholder="Label (e.g. 'Fashion account Gmail')" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
+          <input value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} placeholder="Gmail address *" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
+          <input value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} placeholder="Login Password *" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
+          <input value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Notes (optional)" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }} />
+          <button onClick={add} style={{ background:C.success, border:"none", color:"#fff", padding:"8px 20px", borderRadius:6, fontSize:13, cursor:"pointer", fontWeight:600 }}>Save</button>
+        </div>
+      )}
+
+      {items.length === 0 ? (
+        <div style={{ textAlign:"center", padding:30, background:C.surface, border:`1px dashed ${C.border}`, borderRadius:10 }}>
+          <p style={{ color:C.textMuted, fontSize:14 }}>📧 Koi Gmail credentials nahi hain abhi.</p>
+        </div>
+      ) : (
+        <div style={{ overflowX:"auto", border:`1px solid ${C.border}`, borderRadius:10 }}>
+          <table style={{ borderCollapse:"collapse", width:"100%", fontSize:13, minWidth:700 }}>
+            <thead>
+              <tr style={{ background:C.bg }}>
+                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>#</th>
+                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Label</th>
+                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Gmail</th>
+                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Password</th>
+                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Notes</th>
+                {canEdit && <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Actions</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it, idx) => editId === it.id ? (
+                <tr key={it.id} style={{ borderBottom:`1px solid ${C.border}`, background:C.primaryLight }}>
+                  <td style={{ padding:"8px 12px" }}>{idx+1}</td>
+                  <td style={{ padding:"6px 8px" }}><input value={editForm.label||""} onChange={e=>setEditForm(f=>({...f,label:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
+                  <td style={{ padding:"6px 8px" }}><input value={editForm.email} onChange={e=>setEditForm(f=>({...f,email:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
+                  <td style={{ padding:"6px 8px" }}><input value={editForm.password} onChange={e=>setEditForm(f=>({...f,password:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
+                  <td style={{ padding:"6px 8px" }}><input value={editForm.notes||""} onChange={e=>setEditForm(f=>({...f,notes:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
+                  <td style={{ padding:"8px", textAlign:"center" }}>
+                    <button onClick={saveEdit} style={{ background:C.success, border:"none", color:"#fff", fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer", marginRight:4 }}>Save</button>
+                    <button onClick={()=>{setEditId(null);setEditForm(null)}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer" }}>✕</button>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={it.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                  <td style={{ padding:"10px 12px", color:C.textMuted }}>{idx+1}</td>
+                  <td style={{ padding:"10px 12px", color:C.text, fontWeight:500 }}>{it.label || "—"}</td>
+                  <td style={{ padding:"10px 12px" }}>
+                    <span style={{ color:C.text, fontFamily:"monospace", fontSize:12 }}>{it.email}</span>
+                    <button onClick={()=>copy(it.email)} style={{ marginLeft:6, background:"transparent", border:"none", color:C.primary, fontSize:13, cursor:"pointer" }} title="Copy email">📋</button>
+                  </td>
+                  <td style={{ padding:"10px 12px" }}>
+                    <span style={{ color:C.text, fontFamily:"monospace", fontSize:12 }}>{showPw[it.id] ? it.password : "••••••••"}</span>
+                    <button onClick={()=>setShowPw(s=>({...s,[it.id]:!s[it.id]}))} style={{ marginLeft:6, background:"transparent", border:"none", color:C.primary, fontSize:13, cursor:"pointer" }} title="Show/Hide">{showPw[it.id] ? "🙈" : "👁️"}</button>
+                    <button onClick={()=>copy(it.password)} style={{ marginLeft:4, background:"transparent", border:"none", color:C.primary, fontSize:13, cursor:"pointer" }} title="Copy password">📋</button>
+                  </td>
+                  <td style={{ padding:"10px 12px", color:C.textMuted, fontSize:12 }}>{it.notes || "—"}</td>
+                  {canEdit && (
+                    <td style={{ padding:"8px", textAlign:"center" }}>
+                      <button onClick={()=>{setEditId(it.id); setEditForm({label:it.label||"", email:it.email, password:it.password, notes:it.notes||""})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer", marginRight:4, fontWeight:600 }}>Edit</button>
+                      <button onClick={()=>del(it.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer" }}>✕</button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ============ SHARED: Group Members Management ============
 function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage }) {
   const idField = groupMode === 'cgp' ? 'cgp_id' : 'team_id'
@@ -709,8 +844,7 @@ function GroupsSection({ data, refresh, groupType, sectionLabel }) {
     const id = "team"+Date.now()
     await supabase.from('teams').insert({ id, name:form.name, description:form.description, team_lead_id:form.team_lead_id||null, group_type:groupType })
     if (form.team_lead_id) {
-      const updateData = { [idField]:id }
-      if (groupType === 'team') updateData.is_team_lead = true
+      const updateData = { [idField]:id, is_team_lead: true }
       await supabase.from('members').update(updateData).eq('id', form.team_lead_id)
     }
     setForm({ name:"", description:"", team_lead_id:"" })
@@ -726,8 +860,7 @@ function GroupsSection({ data, refresh, groupType, sectionLabel }) {
     }
     await supabase.from('teams').update({ name:editForm.name, description:editForm.description, team_lead_id:editForm.team_lead_id||null }).eq('id', editId)
     if (editForm.team_lead_id) {
-      const updateData = { [idField]:editId }
-      if (groupType === 'team') updateData.is_team_lead = true
+      const updateData = { [idField]:editId, is_team_lead: true }
       await supabase.from('members').update(updateData).eq('id', editForm.team_lead_id)
     }
     setEditId(null); setEditForm(null)
@@ -759,6 +892,9 @@ function GroupsSection({ data, refresh, groupType, sectionLabel }) {
 
         <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:12 }}>🔗 Links</h3>
         <TeamLinks teamId={selectedTeam} canEdit={true} />
+
+        <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:12 }}>📧 Gmail + Login Password</h3>
+        <GmailAccounts teamId={selectedTeam} canEdit={true} />
       </div>
     )
   }
@@ -1281,11 +1417,13 @@ function TeamLeadDashboard({ user, onLogout }) {
     tabs.push({ id:"team", label:"My Team", icon:"👥" })
     tabs.push({ id:"team_accounts", label:"Team Accounts", icon:"📊" })
     tabs.push({ id:"team_links", label:"Team Links", icon:"🔗" })
+    tabs.push({ id:"team_gmail", label:"Team Gmail", icon:"📧" })
   }
   if (cgp) {
     tabs.push({ id:"cgp", label:"My CGP", icon:"🚀" })
     tabs.push({ id:"cgp_accounts", label:"CGP Accounts", icon:"📊" })
     tabs.push({ id:"cgp_links", label:"CGP Links", icon:"🔗" })
+    tabs.push({ id:"cgp_gmail", label:"CGP Gmail", icon:"📧" })
   }
   tabs.push({ id:"niche", label:"Niche Ideas", icon:"💡" })
   tabs.push({ id:"voiceover", label:"Voiceover Ideas", icon:"🎙️" })
@@ -1346,9 +1484,11 @@ function TeamLeadDashboard({ user, onLogout }) {
         {tab==="team" && team && <GroupMembersManage groupId={team.id} groupMode="team" allMembers={members} refresh={refresh} canManage={true} />}
         {tab==="team_accounts" && team && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📊 Team TikTok Accounts</h2><TikTokSheet teamId={team.id} canEdit={true} /></div>}
         {tab==="team_links" && team && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🔗 Team Links</h2><TeamLinks teamId={team.id} canEdit={true} /></div>}
+        {tab==="team_gmail" && team && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📧 Team Gmail + Login Password</h2><GmailAccounts teamId={team.id} canEdit={true} /></div>}
         {tab==="cgp" && cgp && <GroupMembersManage groupId={cgp.id} groupMode="cgp" allMembers={members} refresh={refresh} canManage={true} />}
         {tab==="cgp_accounts" && cgp && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📊 CGP TikTok Accounts</h2><TikTokSheet teamId={cgp.id} canEdit={true} /></div>}
         {tab==="cgp_links" && cgp && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🔗 CGP Links</h2><TeamLinks teamId={cgp.id} canEdit={true} /></div>}
+        {tab==="cgp_gmail" && cgp && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📧 CGP Gmail + Login Password</h2><GmailAccounts teamId={cgp.id} canEdit={true} /></div>}
         {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas</h2><IdeasBoard user={user} table="niche_ideas" title="Niche Ideas Board" emoji="💡" /></div>}
         {tab==="voiceover" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🎙️ Voiceover Ideas</h2><IdeasBoard user={user} table="voiceover_ideas" title="Voiceover Ideas Board" emoji="🎙️" /></div>}
         {tab==="checkin" && <MemberCheckin data={myData} user={user} refresh={refresh} />}
@@ -1654,6 +1794,9 @@ function MemberGroupView({ group, groupMembers, groupMode }) {
 
       <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:10 }}>🔗 Links</h3>
       <TeamLinks teamId={group.id} canEdit={false} />
+
+      <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:10 }}>📧 Gmail + Login Password</h3>
+      <GmailAccounts teamId={group.id} canEdit={false} />
     </div>
   )
 }
