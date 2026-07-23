@@ -1935,8 +1935,9 @@ function MemberGroupView({ group, groupMembers, groupMode }) {
       <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:10 }}>🔗 Links</h3>
       <TeamLinks teamId={group.id} canEdit={false} />
 
-      <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:10 }}>📧 Gmail + Login Password</h3>
-      <GmailAccounts teamId={group.id} canEdit={false} />
+      <div style={{ marginTop:28, background:C.warningLight, border:`1px solid ${C.warning}`, borderRadius:10, padding:"12px 16px", fontSize:12, color:C.warning }}>
+        🔒 <strong>Gmail + Login Password</strong> vault sirf Team Lead aur Super Admin dekh sakte hain. Zaroorat ho to un se contact karein.
+      </div>
     </div>
   )
 }
