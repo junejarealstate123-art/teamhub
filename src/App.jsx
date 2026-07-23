@@ -1427,7 +1427,6 @@ function TeamLeadDashboard({ user, onLogout }) {
   }
   tabs.push({ id:"niche", label:"Niche Ideas", icon:"💡" })
   tabs.push({ id:"voiceover", label:"Voiceover Ideas", icon:"🎙️" })
-  tabs.push({ id:"checkin", label:"Attendance", icon:"🕐" })
   tabs.push({ id:"tasks", label:"My Tasks", icon:"✅" })
   tabs.push({ id:"report", label:"Report", icon:"📋" })
 
@@ -1453,33 +1452,7 @@ function TeamLeadDashboard({ user, onLogout }) {
       </div>
       <div style={{ flex:1, padding:20, overflowY:"auto" }}>
         {tab==="home" && (
-          <div>
-            <h2 style={{ color:C.text, fontSize:22, fontWeight:700, marginBottom:4 }}>👑 Welcome, {user.name.split(" ")[0]}!</h2>
-            <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{today()}</p>
-            <ShiftJobCard user={user} />
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:12 }}>
-              {team && (
-                <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
-                  <p style={{ color:C.textMuted, fontSize:12 }}>👥 Team: {team.name}</p>
-                  <p style={{ color:C.purple, fontSize:22, fontWeight:700 }}>{members.filter(m=>m.team_id===team.id).length} members</p>
-                </div>
-              )}
-              {cgp && (
-                <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
-                  <p style={{ color:C.textMuted, fontSize:12 }}>🚀 CGP: {cgp.name}</p>
-                  <p style={{ color:C.orange, fontSize:22, fontWeight:700 }}>{members.filter(m=>m.cgp_id===cgp.id).length} members</p>
-                </div>
-              )}
-              <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
-                <p style={{ color:C.textMuted, fontSize:12 }}>My Tasks</p>
-                <p style={{ color:C.warning, fontSize:22, fontWeight:700 }}>{myData.tasks.filter(t=>t.status!=="done").length}</p>
-              </div>
-              <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
-                <p style={{ color:C.textMuted, fontSize:12 }}>My Attendance</p>
-                <p style={{ color:C.success, fontSize:16, fontWeight:700 }}>{myData.attendance[today()] ? "✓ Present" : "✗ Not yet"}</p>
-              </div>
-            </div>
-          </div>
+          <TeamLeadHome user={user} team={team} cgp={cgp} members={members} myData={myData} refresh={refresh} />
         )}
         {tab==="team" && team && <GroupMembersManage groupId={team.id} groupMode="team" allMembers={members} refresh={refresh} canManage={true} />}
         {tab==="team_accounts" && team && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📊 Team TikTok Accounts</h2><TikTokSheet teamId={team.id} canEdit={true} /></div>}
@@ -1491,7 +1464,6 @@ function TeamLeadDashboard({ user, onLogout }) {
         {tab==="cgp_gmail" && cgp && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📧 CGP Gmail + Login Password</h2><GmailAccounts teamId={cgp.id} canEdit={true} /></div>}
         {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas</h2><IdeasBoard user={user} table="niche_ideas" title="Niche Ideas Board" emoji="💡" /></div>}
         {tab==="voiceover" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🎙️ Voiceover Ideas</h2><IdeasBoard user={user} table="voiceover_ideas" title="Voiceover Ideas Board" emoji="🎙️" /></div>}
-        {tab==="checkin" && <MemberCheckin data={myData} user={user} refresh={refresh} />}
         {tab==="tasks" && <MemberTasks data={myData} refresh={refresh} />}
         {tab==="report" && <MemberReport data={myData} user={user} refresh={refresh} />}
       </div>
@@ -1530,7 +1502,6 @@ function MemberDashboard({ user, onLogout }) {
 
   const tabs = [
     { id:"home", label:"Home", icon:"🏠" },
-    { id:"checkin", label:"Attendance", icon:"🕐" },
     { id:"tasks", label:"My Tasks", icon:"✅" },
     { id:"report", label:"Daily Report", icon:"📋" },
   ]
@@ -1564,8 +1535,7 @@ function MemberDashboard({ user, onLogout }) {
         ))}
       </div>
       <div style={{ flex:1, padding:20, overflowY:"auto" }}>
-        {tab==="home" && <MemberHome data={data} user={user} />}
-        {tab==="checkin" && <MemberCheckin data={data} user={user} refresh={refresh} />}
+        {tab==="home" && <MemberHome data={data} user={user} refresh={refresh} />}
         {tab==="tasks" && <MemberTasks data={data} refresh={refresh} />}
         {tab==="report" && <MemberReport data={data} user={user} refresh={refresh} />}
         {tab==="team" && <MemberGroupView group={data.team} groupMembers={data.teamMembers} groupMode="team" />}
@@ -1577,25 +1547,92 @@ function MemberDashboard({ user, onLogout }) {
   )
 }
 
-function MemberHome({ data, user }) {
+function MemberHome({ data, user, refresh }) {
   const td = today()
   const att = data.attendance[td]
   const pending = data.tasks.filter(t=>t.status==="pending").length
   const done = data.tasks.filter(t=>t.status==="done").length
   const reportDone = !!data.reports[td]
+  const [now, setNow] = useState(nowHHMM())
+  const [lateReason, setLateReason] = useState("")
+
+  useEffect(() => {
+    const t = setInterval(()=>setNow(nowHHMM()), 15000)
+    return ()=>clearInterval(t)
+  }, [])
+
+  const graceMin = user.graceMinutes ?? 15
+  const fixedMin = timeToMin(user.checkinTime||"09:00")
+  const nowMin = timeToMin(now)
+  const windowOpen = nowMin >= fixedMin
+  const isLate = nowMin > fixedMin + graceMin
+
+  const doCheckin = async () => {
+    if (att?.checkIn) return
+    if (isLate && !lateReason.trim()) return alert("Late reason zaroori!")
+    await supabase.from('attendance').upsert({ member_id:user.id, date:td, check_in:now, status:isLate?"late":"ontime", reason:lateReason||null, late_by:isLate?nowMin-fixedMin:0 }, { onConflict:'member_id,date' })
+    if (isLate) {
+      const newLc = data.stats.lateCount + 1
+      await supabase.from('member_stats').upsert({ member_id:user.id, late_count:newLc, strikes:data.stats.strikes + (newLc%9===0?1:0) }, { onConflict:'member_id' })
+    }
+    setLateReason("")
+    refresh()
+  }
+
+  const doCheckout = async () => {
+    if (!att?.checkIn || att?.checkOut) return
+    await supabase.from('attendance').update({ check_out:now }).eq('member_id', user.id).eq('date', td)
+    refresh()
+  }
+
   return (
     <div>
       <h2 style={{ color:C.text, fontSize:22, fontWeight:700 }}>Assalam u Alaikum, {user.name.split(" ")[0]}! 👋</h2>
       <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{td}</p>
-      
+
       <ShiftJobCard user={user} />
-      
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12 }}>
-        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
-          <p style={{ color:C.textMuted, fontSize:12 }}>Attendance</p>
-          {att ? <p style={{ color:att.status==="ontime"?C.success:C.warning, fontSize:20, fontWeight:700 }}>{att.status==="ontime"?"✓ On Time":"⚠ Late"}</p>
-               : <p style={{ color:C.danger, fontSize:18, fontWeight:700 }}>Not checked in</p>}
+
+      <div style={{ maxWidth:520, margin:"0 auto 24px" }}>
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:22, textAlign:"center", marginBottom:14 }}>
+          <p style={{ color:C.textMuted, fontSize:13 }}>Current time 🇵🇰 Pakistan (PKT)</p>
+          <p style={{ color:C.text, fontSize:38, fontWeight:700 }}>{to12(now)}</p>
         </div>
+
+        {!att?.checkIn ? (
+          <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:20, textAlign:"center" }}>
+            {windowOpen ? (
+              <>
+                {isLate && <input value={lateReason} onChange={e=>setLateReason(e.target.value)} placeholder="Late reason zaroori..." style={{ marginBottom:12, width:"100%", maxWidth:300, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", fontSize:13, boxSizing:"border-box" }} />}
+                {isLate && <br/>}
+                <button onClick={doCheckin} style={{ background:isLate?C.warning:C.success, border:"none", color:"#fff", padding:"14px 40px", borderRadius:10, fontSize:15, fontWeight:600, cursor:"pointer" }}>
+                  {isLate ? "⚠ Late Check In" : "✓ Check In"}
+                </button>
+              </>
+            ) : (
+              <p style={{ color:C.textMuted, fontSize:14 }}>Check-in window opens at {to12(user.checkinTime)} ({fixedMin - nowMin} min)</p>
+            )}
+          </div>
+        ) : (
+          <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:20, display:"flex", gap:14 }}>
+            <div style={{ flex:1, background:C.bg, borderRadius:10, padding:12, textAlign:"center" }}>
+              <p style={{ color:C.textMuted, fontSize:11 }}>Checked in</p>
+              <p style={{ color:att.status==="ontime"?C.success:C.warning, fontSize:20, fontWeight:700 }}>{to12(att.checkIn)}</p>
+            </div>
+            {att.checkOut ? (
+              <div style={{ flex:1, background:C.bg, borderRadius:10, padding:12, textAlign:"center" }}>
+                <p style={{ color:C.textMuted, fontSize:11 }}>Checked out</p>
+                <p style={{ color:C.primary, fontSize:20, fontWeight:700 }}>{to12(att.checkOut)}</p>
+              </div>
+            ) : (
+              <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                <button onClick={doCheckout} style={{ background:C.primary, border:"none", color:"#fff", padding:"12px 24px", borderRadius:10, fontSize:14, fontWeight:600, cursor:"pointer" }}>Check Out</button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))", gap:12 }}>
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
           <p style={{ color:C.textMuted, fontSize:12 }}>Tasks</p>
           <p style={{ color:C.warning, fontSize:20, fontWeight:700 }}>{pending} pending</p>
@@ -1604,6 +1641,109 @@ function MemberHome({ data, user }) {
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
           <p style={{ color:C.textMuted, fontSize:12 }}>Daily Report</p>
           <p style={{ color:reportDone?C.success:C.danger, fontSize:18, fontWeight:700 }}>{reportDone?"✓ Submitted":"Pending"}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TeamLeadHome({ user, team, cgp, members, myData, refresh }) {
+  const td = today()
+  const att = myData.attendance[td]
+  const [now, setNow] = useState(nowHHMM())
+  const [lateReason, setLateReason] = useState("")
+
+  useEffect(() => {
+    const t = setInterval(()=>setNow(nowHHMM()), 15000)
+    return ()=>clearInterval(t)
+  }, [])
+
+  const graceMin = user.graceMinutes ?? 15
+  const fixedMin = timeToMin(user.checkinTime||"09:00")
+  const nowMin = timeToMin(now)
+  const windowOpen = nowMin >= fixedMin
+  const isLate = nowMin > fixedMin + graceMin
+
+  const doCheckin = async () => {
+    if (att?.checkIn) return
+    if (isLate && !lateReason.trim()) return alert("Late reason zaroori!")
+    await supabase.from('attendance').upsert({ member_id:user.id, date:td, check_in:now, status:isLate?"late":"ontime", reason:lateReason||null, late_by:isLate?nowMin-fixedMin:0 }, { onConflict:'member_id,date' })
+    if (isLate) {
+      const newLc = myData.stats.lateCount + 1
+      await supabase.from('member_stats').upsert({ member_id:user.id, late_count:newLc, strikes:myData.stats.strikes + (newLc%9===0?1:0) }, { onConflict:'member_id' })
+    }
+    setLateReason("")
+    refresh()
+  }
+
+  const doCheckout = async () => {
+    if (!att?.checkIn || att?.checkOut) return
+    await supabase.from('attendance').update({ check_out:now }).eq('member_id', user.id).eq('date', td)
+    refresh()
+  }
+
+  return (
+    <div>
+      <h2 style={{ color:C.text, fontSize:22, fontWeight:700, marginBottom:4 }}>👑 Welcome, {user.name.split(" ")[0]}!</h2>
+      <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{td}</p>
+      <ShiftJobCard user={user} />
+
+      <div style={{ maxWidth:520, margin:"0 auto 24px" }}>
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:22, textAlign:"center", marginBottom:14 }}>
+          <p style={{ color:C.textMuted, fontSize:13 }}>Current time 🇵🇰 Pakistan (PKT)</p>
+          <p style={{ color:C.text, fontSize:38, fontWeight:700 }}>{to12(now)}</p>
+        </div>
+
+        {!att?.checkIn ? (
+          <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:20, textAlign:"center" }}>
+            {windowOpen ? (
+              <>
+                {isLate && <input value={lateReason} onChange={e=>setLateReason(e.target.value)} placeholder="Late reason zaroori..." style={{ marginBottom:12, width:"100%", maxWidth:300, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 12px", fontSize:13, boxSizing:"border-box" }} />}
+                {isLate && <br/>}
+                <button onClick={doCheckin} style={{ background:isLate?C.warning:C.success, border:"none", color:"#fff", padding:"14px 40px", borderRadius:10, fontSize:15, fontWeight:600, cursor:"pointer" }}>
+                  {isLate ? "⚠ Late Check In" : "✓ Check In"}
+                </button>
+              </>
+            ) : (
+              <p style={{ color:C.textMuted, fontSize:14 }}>Check-in window opens at {to12(user.checkinTime)} ({fixedMin - nowMin} min)</p>
+            )}
+          </div>
+        ) : (
+          <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, padding:20, display:"flex", gap:14 }}>
+            <div style={{ flex:1, background:C.bg, borderRadius:10, padding:12, textAlign:"center" }}>
+              <p style={{ color:C.textMuted, fontSize:11 }}>Checked in</p>
+              <p style={{ color:att.status==="ontime"?C.success:C.warning, fontSize:20, fontWeight:700 }}>{to12(att.checkIn)}</p>
+            </div>
+            {att.checkOut ? (
+              <div style={{ flex:1, background:C.bg, borderRadius:10, padding:12, textAlign:"center" }}>
+                <p style={{ color:C.textMuted, fontSize:11 }}>Checked out</p>
+                <p style={{ color:C.primary, fontSize:20, fontWeight:700 }}>{to12(att.checkOut)}</p>
+              </div>
+            ) : (
+              <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                <button onClick={doCheckout} style={{ background:C.primary, border:"none", color:"#fff", padding:"12px 24px", borderRadius:10, fontSize:14, fontWeight:600, cursor:"pointer" }}>Check Out</button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:12 }}>
+        {team && (
+          <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
+            <p style={{ color:C.textMuted, fontSize:12 }}>👥 Team: {team.name}</p>
+            <p style={{ color:C.purple, fontSize:22, fontWeight:700 }}>{members.filter(m=>m.team_id===team.id).length} members</p>
+          </div>
+        )}
+        {cgp && (
+          <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
+            <p style={{ color:C.textMuted, fontSize:12 }}>🚀 CGP: {cgp.name}</p>
+            <p style={{ color:C.orange, fontSize:22, fontWeight:700 }}>{members.filter(m=>m.cgp_id===cgp.id).length} members</p>
+          </div>
+        )}
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:18 }}>
+          <p style={{ color:C.textMuted, fontSize:12 }}>My Tasks</p>
+          <p style={{ color:C.warning, fontSize:22, fontWeight:700 }}>{myData.tasks.filter(t=>t.status!=="done").length}</p>
         </div>
       </div>
     </div>
