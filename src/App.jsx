@@ -143,31 +143,38 @@ function LoginScreen({ form, setForm, onLogin, error }) {
 }
 
 // ============ SHARED: TikTok Sheet ============
-function TikTokSheet({ teamId, canEdit, filterByUserId }) {
+function TikTokSheet({ teamId, canEdit, filterByUserId, userName }) {
   const [accounts, setAccounts] = useState([])
   const [categories, setCategories] = useState([])
   const [groupMembers, setGroupMembers] = useState([])
+  const [comments, setComments] = useState({}) // account_id -> array of comments
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState({ account_name:"", niche:"", tiktok_link:"", video_source:"", competitor_link:"", category:"", assigned_to:"" })
   const [adding, setAdding] = useState(false)
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState(null)
+  const [expandedId, setExpandedId] = useState(null)
+  const [commentText, setCommentText] = useState({})
+  const [dragId, setDragId] = useState(null)
   const td = today()
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data:accs }, { data:cats }, { data:mems1 }, { data:mems2 }] = await Promise.all([
-      supabase.from('tiktok_accounts').select('*').eq('team_id', teamId).order('created_at'),
+    const [{ data:accs }, { data:cats }, { data:mems1 }, { data:mems2 }, { data:coms }] = await Promise.all([
+      supabase.from('tiktok_accounts').select('*').eq('team_id', teamId).order('sort_order', { nullsFirst:false }).order('created_at'),
       supabase.from('account_categories').select('*').order('created_at'),
       supabase.from('members').select('id, name, avatar').eq('team_id', teamId),
       supabase.from('members').select('id, name, avatar').eq('cgp_id', teamId),
+      supabase.from('account_comments').select('*').order('created_at'),
     ])
     setAccounts(accs || [])
     setCategories(cats || [])
-    // Merge unique members (in case group could be team or cgp)
     const memMap = {}
     ;[...(mems1||[]), ...(mems2||[])].forEach(m => { memMap[m.id] = m })
     setGroupMembers(Object.values(memMap))
+    const cMap = {}
+    ;(coms || []).forEach(c => { if (!cMap[c.account_id]) cMap[c.account_id] = []; cMap[c.account_id].push(c) })
+    setComments(cMap)
     setLoading(false)
   }, [teamId])
 
@@ -214,6 +221,43 @@ function TikTokSheet({ teamId, canEdit, filterByUserId }) {
     const newStatus = nowDone ? 'not_yet' : 'done'
     await supabase.from('tiktok_accounts').update({ status:newStatus, status_date:td }).eq('id', acc.id)
     setAccounts(a => a.map(x => x.id===acc.id ? {...x, status:newStatus, status_date:td} : x))
+  }
+
+  const addComment = async (accId) => {
+    const text = (commentText[accId]||"").trim()
+    if (!text) return
+    const author = userName || "User"
+    await supabase.from('account_comments').insert({ id:"c"+Date.now(), account_id:accId, author, text })
+    setCommentText(t => ({...t, [accId]:""}))
+    load()
+  }
+
+  const deleteComment = async (id) => {
+    if (!confirm("Delete comment?")) return
+    await supabase.from('account_comments').delete().eq('id', id)
+    load()
+  }
+
+  const handleDragStart = (id) => setDragId(id)
+  const handleDragOver = (e) => e.preventDefault()
+  const handleDrop = async (targetId, displayList) => {
+    if (!dragId || dragId === targetId) { setDragId(null); return }
+    const dragIdx = displayList.findIndex(a => a.id === dragId)
+    const targetIdx = displayList.findIndex(a => a.id === targetId)
+    if (dragIdx < 0 || targetIdx < 0) { setDragId(null); return }
+    const newList = [...displayList]
+    const [moved] = newList.splice(dragIdx, 1)
+    newList.splice(targetIdx, 0, moved)
+    // Assign new sort_order values (100 apart)
+    const updates = newList.map((a, i) => ({ id: a.id, sort_order: (i+1)*100 }))
+    // Optimistic UI
+    setAccounts(prev => {
+      const map = Object.fromEntries(updates.map(u => [u.id, u.sort_order]))
+      return [...prev].sort((a,b) => (map[a.id] ?? a.sort_order ?? 0) - (map[b.id] ?? b.sort_order ?? 0)).map(a => ({...a, sort_order: map[a.id] ?? a.sort_order}))
+    })
+    setDragId(null)
+    // Persist
+    await Promise.all(updates.map(u => supabase.from('tiktok_accounts').update({ sort_order:u.sort_order }).eq('id', u.id)))
   }
 
   if (loading) return <p style={{ color:C.textMuted, fontSize:13 }}>Loading...</p>
@@ -270,6 +314,7 @@ function TikTokSheet({ teamId, canEdit, filterByUserId }) {
           <table style={{ borderCollapse:"collapse", width:"100%", fontSize:13, minWidth:1100 }}>
             <thead>
               <tr style={{ background:C.bg }}>
+                {canEdit && <th style={{ padding:"10px 6px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, width:32 }} title="Drag to reorder"></th>}
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>#</th>
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Account</th>
                 {!filterByUserId && <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Assigned To</th>}
@@ -279,12 +324,18 @@ function TikTokSheet({ teamId, canEdit, filterByUserId }) {
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Source</th>
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Competitor</th>
                 <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Status</th>
+                <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Notes</th>
                 {canEdit && <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Actions</th>}
               </tr>
             </thead>
             <tbody>
-              {displayAccounts.map((acc, idx) => editId === acc.id ? (
+              {displayAccounts.map((acc, idx) => {
+                const accComments = comments[acc.id] || []
+                const rows = []
+                if (editId === acc.id) {
+                  rows.push(
                 <tr key={acc.id} style={{ borderBottom:`1px solid ${C.border}`, background:C.primaryLight }}>
+                  {canEdit && <td style={{ padding:"8px", textAlign:"center", color:C.textLight }}>≡</td>}
                   <td style={{ padding:"8px 12px" }}>{idx+1}</td>
                   <td style={{ padding:"6px 8px" }}><input value={editForm.account_name} onChange={e=>setEditForm(f=>({...f,account_name:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
                   {!filterByUserId && <td style={{ padding:"6px 8px" }}>
@@ -299,13 +350,17 @@ function TikTokSheet({ teamId, canEdit, filterByUserId }) {
                   <td style={{ padding:"6px 8px" }}><input value={editForm.video_source} onChange={e=>setEditForm(f=>({...f,video_source:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
                   <td style={{ padding:"6px 8px" }}><input value={editForm.competitor_link||""} onChange={e=>setEditForm(f=>({...f,competitor_link:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
                   <td style={{ padding:"8px", textAlign:"center", color:C.textMuted }}>—</td>
+                  <td style={{ padding:"8px", textAlign:"center", color:C.textMuted }}>—</td>
                   <td style={{ padding:"8px", textAlign:"center" }}>
                     <button onClick={saveEdit} style={{ background:C.success, border:"none", color:"#fff", fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer", marginRight:4 }}>Save</button>
                     <button onClick={()=>{setEditId(null);setEditForm(null)}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer" }}>✕</button>
                   </td>
                 </tr>
-              ) : (
-                <tr key={acc.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                  )
+                } else {
+                  rows.push(
+                <tr key={acc.id} draggable={canEdit} onDragStart={()=>handleDragStart(acc.id)} onDragOver={handleDragOver} onDrop={()=>handleDrop(acc.id, displayAccounts)} style={{ borderBottom:`1px solid ${C.border}`, opacity: dragId===acc.id ? 0.4 : 1 }}>
+                  {canEdit && <td style={{ padding:"10px 6px", textAlign:"center", color:C.textLight, cursor:"grab", userSelect:"none", fontSize:16 }} title="Drag to reorder">≡</td>}
                   <td style={{ padding:"10px 12px", color:C.textMuted }}>{idx+1}</td>
                   <td style={{ padding:"10px 12px", color:C.text, fontWeight:500 }}>{acc.account_name}</td>
                   {!filterByUserId && <td style={{ padding:"10px 12px" }}>
@@ -326,6 +381,9 @@ function TikTokSheet({ teamId, canEdit, filterByUserId }) {
                       {isDone(acc) ? "✓ Done" : "Not Yet"}
                     </button>
                   </td>
+                  <td style={{ padding:"8px", textAlign:"center" }}>
+                    <button onClick={()=>setExpandedId(expandedId===acc.id?null:acc.id)} style={{ background:accComments.length>0?C.warningLight:"transparent", color:accComments.length>0?C.warning:C.textMuted, border:`1px solid ${accComments.length>0?C.warning:C.border}`, fontSize:11, padding:"5px 10px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>💬 {accComments.length}</button>
+                  </td>
                   {canEdit && (
                     <td style={{ padding:"8px", textAlign:"center" }}>
                       <button onClick={()=>{setEditId(acc.id); setEditForm({account_name:acc.account_name, niche:acc.niche||"", tiktok_link:acc.tiktok_link||"", video_source:acc.video_source||"", competitor_link:acc.competitor_link||"", category:acc.category||"", assigned_to:acc.assigned_to||""})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer", marginRight:4, fontWeight:600 }}>Edit</button>
@@ -333,7 +391,37 @@ function TikTokSheet({ teamId, canEdit, filterByUserId }) {
                     </td>
                   )}
                 </tr>
-              ))}
+                  )
+                }
+                if (expandedId === acc.id) {
+                  const totalCols = 10 + (canEdit?2:0) + (!filterByUserId?1:0)
+                  rows.push(
+                    <tr key={acc.id+"_c"} style={{ background:C.bg }}>
+                      <td colSpan={totalCols} style={{ padding:"14px 20px", borderBottom:`1px solid ${C.border}` }}>
+                        <p style={{ color:C.text, fontWeight:600, fontSize:13, marginBottom:10 }}>💬 Notes / Changes for "{acc.account_name}"</p>
+                        <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:10, maxHeight:200, overflowY:"auto" }}>
+                          {accComments.length === 0 ? (
+                            <p style={{ color:C.textMuted, fontSize:12, fontStyle:"italic" }}>Koi note nahi hai abhi. Pehla note likho.</p>
+                          ) : accComments.map(c => (
+                            <div key={c.id} style={{ background:C.surface, borderRadius:6, padding:"8px 10px", border:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"start", gap:8 }}>
+                              <div style={{ flex:1 }}>
+                                <p style={{ color:C.primary, fontSize:11, fontWeight:600 }}>{c.author} <span style={{ color:C.textLight, fontWeight:400 }}>· {new Date(c.created_at).toLocaleString('en-GB',{ timeZone:TZ, day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}</span></p>
+                                <p style={{ color:C.text, fontSize:13, marginTop:2, whiteSpace:"pre-wrap" }}>{c.text}</p>
+                              </div>
+                              <button onClick={()=>deleteComment(c.id)} style={{ background:"transparent", border:"none", color:C.danger, fontSize:12, cursor:"pointer", padding:"2px 6px" }} title="Delete">✕</button>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ display:"flex", gap:6 }}>
+                          <input value={commentText[acc.id]||""} onChange={e=>setCommentText(t=>({...t,[acc.id]:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addComment(acc.id)} placeholder="Note / change likho..." style={{ flex:1, border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 10px", fontSize:13, boxSizing:"border-box" }} />
+                          <button onClick={()=>addComment(acc.id)} style={{ background:C.primary, border:"none", color:"#fff", padding:"7px 16px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>Add</button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                }
+                return rows
+              })}
             </tbody>
           </table>
         </div>
@@ -917,7 +1005,7 @@ function GroupsSection({ data, refresh, groupType, sectionLabel }) {
         <GroupMembersManage groupId={selectedTeam} groupMode={groupType} allMembers={data.members} refresh={refresh} canManage={true} />
 
         <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:12 }}>📊 TikTok Accounts</h3>
-        <TikTokSheet teamId={selectedTeam} canEdit={true} />
+        <TikTokSheet teamId={selectedTeam} canEdit={true} userName="Super Admin" />
 
         <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:12 }}>🔗 Links</h3>
         <TeamLinks teamId={selectedTeam} canEdit={true} />
@@ -1484,11 +1572,11 @@ function TeamLeadDashboard({ user, onLogout }) {
           <TeamLeadHome user={user} team={team} cgp={cgp} members={members} myData={myData} refresh={refresh} />
         )}
         {tab==="team" && team && <GroupMembersManage groupId={team.id} groupMode="team" allMembers={members} refresh={refresh} canManage={true} />}
-        {tab==="team_accounts" && team && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📊 Team TikTok Accounts</h2><TikTokSheet teamId={team.id} canEdit={true} /></div>}
+        {tab==="team_accounts" && team && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📊 Team TikTok Accounts</h2><TikTokSheet teamId={team.id} canEdit={true} userName={user.name} /></div>}
         {tab==="team_links" && team && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🔗 Team Links</h2><TeamLinks teamId={team.id} canEdit={true} /></div>}
         {tab==="team_gmail" && team && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📧 Team Gmail + Login Password</h2><GmailAccounts teamId={team.id} canEdit={true} /></div>}
         {tab==="cgp" && cgp && <GroupMembersManage groupId={cgp.id} groupMode="cgp" allMembers={members} refresh={refresh} canManage={true} />}
-        {tab==="cgp_accounts" && cgp && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📊 CGP TikTok Accounts</h2><TikTokSheet teamId={cgp.id} canEdit={true} /></div>}
+        {tab==="cgp_accounts" && cgp && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📊 CGP TikTok Accounts</h2><TikTokSheet teamId={cgp.id} canEdit={true} userName={user.name} /></div>}
         {tab==="cgp_links" && cgp && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🔗 CGP Links</h2><TeamLinks teamId={cgp.id} canEdit={true} /></div>}
         {tab==="cgp_gmail" && cgp && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📧 CGP Gmail + Login Password</h2><GmailAccounts teamId={cgp.id} canEdit={true} /></div>}
         {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas</h2><IdeasBoard user={user} table="niche_ideas" title="Niche Ideas Board" emoji="💡" /></div>}
@@ -1959,7 +2047,7 @@ function MemberGroupView({ group, groupMembers, groupMode, user }) {
 
       <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginBottom:10 }}>📊 Aapke Assigned Accounts</h3>
       <p style={{ color:C.textMuted, fontSize:12, marginBottom:10 }}>💡 Sirf wo accounts dikh rahe hain jo Team Lead ne aapko assign kiye. Status toggle kar sakte hain.</p>
-      <TikTokSheet teamId={group.id} canEdit={false} filterByUserId={user.id} />
+      <TikTokSheet teamId={group.id} canEdit={false} filterByUserId={user.id} userName={user.name} />
 
       <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:10 }}>🔗 Links</h3>
       <TeamLinks teamId={group.id} canEdit={false} />
