@@ -85,7 +85,8 @@ export default function App() {
       jobDescription: data.job_description || "",
       avatar: data.avatar || data.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase(),
       isAdmin: data.is_admin,
-      isTeamLead: !data.is_admin && (data.is_team_lead || isAnyLead),
+      isManager: !data.is_admin && !!data.is_manager,
+      isTeamLead: !data.is_admin && !data.is_manager && (data.is_team_lead || isAnyLead),
       teamId: data.team_id, cgpId: data.cgp_id,
       leadOfIds: (leadOf || []).map(x => x.id)
     }
@@ -98,6 +99,7 @@ export default function App() {
   if (loading) return <Loader />
   if (!user) return <LoginScreen form={loginForm} setForm={setLoginForm} onLogin={handleLogin} error={loginError} />
   if (user.isAdmin) return <AdminDashboard user={user} onLogout={onLogout} />
+  if (user.isManager) return <ManagerDashboard user={user} onLogout={onLogout} />
   if (user.isTeamLead) return <TeamLeadDashboard user={user} onLogout={onLogout} />
   return <MemberDashboard user={user} onLogout={onLogout} />
 }
@@ -205,7 +207,8 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
 
   const saveEdit = async () => {
     if (!editForm.account_name.trim()) return alert("Name zaroori hai!")
-    await supabase.from('tiktok_accounts').update(editForm).eq('id', editId)
+    const { error } = await supabase.from('tiktok_accounts').update(editForm).eq('id', editId)
+    if (error) { alert("❌ Save failed: " + error.message + "\n\nDetails: " + (error.details||error.hint||"—")); return }
     setEditId(null); setEditForm(null)
     load()
   }
@@ -712,6 +715,15 @@ function MemberFormFields({ form, setForm, showTeam=false, showCgp=false, teamGr
           )}
         </div>
       )}
+      {showTeam && (
+        <div style={{ background:C.purpleLight, border:`1px solid ${C.purple}`, borderRadius:8, padding:"10px 14px", marginTop:10 }}>
+          <label style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer", color:C.purple, fontSize:13, fontWeight:600 }}>
+            <input type="checkbox" checked={!!form.is_manager} onChange={e=>setForm(f=>({...f, is_manager:e.target.checked}))} style={{ width:16, height:16, cursor:"pointer" }} />
+            👔 Make this member a Manager
+          </label>
+          <p style={{ color:C.purple, fontSize:11, marginTop:4, marginLeft:24, opacity:0.8 }}>Manager sab members ki timing set kar sake, tasks assign kare, aur attendance dekhe.</p>
+        </div>
+      )}
     </>
   )
 }
@@ -719,7 +731,7 @@ function MemberFormFields({ form, setForm, showTeam=false, showCgp=false, teamGr
 const emptyMemberForm = () => ({
   name:"", email:"", password:"", role:"",
   checkin_time:"09:00", end_time:"18:00", grace_minutes:15,
-  job_description:"", team_id:"", cgp_id:""
+  job_description:"", team_id:"", cgp_id:"", is_manager:false
 })
 
 // ============ SHARED: Gmail Credentials Vault ============
@@ -1094,6 +1106,134 @@ function GroupsSection({ data, refresh, groupType, sectionLabel }) {
 }
 
 // ============ ADMIN DASHBOARD ============
+function ManagerDashboard({ user, onLogout }) {
+  const [tab, setTab] = useState("members")
+  const [data, setData] = useState({ members:[], tasks:[], attendance:{}, reports:{}, stats:{}, reportComments:{}, teams:[], accounts:[] })
+  const [loading, setLoading] = useState(true)
+
+  const refresh = useCallback(async () => {
+    const [{ data:members }, { data:tasks }, { data:att }, { data:reps }, { data:stats }, { data:reportComments }, { data:teams }, { data:accounts }] = await Promise.all([
+      supabase.from('members').select('*').eq('is_admin', false).order('created_at'),
+      supabase.from('tasks').select('*').order('created_at'),
+      supabase.from('attendance').select('*'),
+      supabase.from('reports').select('*'),
+      supabase.from('member_stats').select('*'),
+      supabase.from('report_comments').select('*').order('created_at'),
+      supabase.from('teams').select('*').order('created_at'),
+      supabase.from('tiktok_accounts').select('*'),
+    ])
+    const attMap = {}; (att||[]).forEach(a=>{ if(!attMap[a.date]) attMap[a.date]={}; attMap[a.date][a.member_id]={checkIn:a.check_in,checkOut:a.check_out,status:a.status} })
+    const repMap = {}; (reps||[]).forEach(r=>{ if(!repMap[r.date]) repMap[r.date]={}; repMap[r.date][r.member_id]={tasksCompleted:r.tasks_completed,hoursWorked:r.hours_worked,blockers:r.blockers,notes:r.notes} })
+    const statsMap = {}; (stats||[]).forEach(s=>{ statsMap[s.member_id]={lateCount:s.late_count,strikes:s.strikes} })
+    const rcMap = {}; (reportComments||[]).forEach(rc=>{ const k = `${rc.report_member_id}|${rc.report_date}`; if(!rcMap[k]) rcMap[k]=[]; rcMap[k].push({id:rc.id, author:rc.author, text:rc.text}) })
+    setData({ members:members||[], tasks:tasks||[], attendance:attMap, reports:repMap, stats:statsMap, reportComments:rcMap, teams:teams||[], accounts:accounts||[] })
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { refresh() }, [refresh])
+
+  const tabs = [
+    { id:"members", label:"Members", icon:"👤" },
+    { id:"tasks", label:"Tasks", icon:"✅" },
+    { id:"attendance", label:"Attendance", icon:"🕐" },
+    { id:"reports", label:"Reports", icon:"📋" },
+  ]
+
+  if (loading) return <Loader />
+
+  return (
+    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column" }}>
+      <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 24px", display:"flex", alignItems:"center", justifyContent:"space-between", height:60 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <div style={{ width:32, height:32, background:C.purple, borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, color:"#fff" }}>👔</div>
+          <span style={{ color:C.text, fontWeight:700, fontSize:17 }}>TeamHub</span>
+          <span style={{ background:C.purpleLight, color:C.purple, fontSize:11, padding:"3px 10px", borderRadius:20, fontWeight:600 }}>Manager</span>
+          <span style={{ color:C.textMuted, fontSize:13, marginLeft:8 }}>{user.name}</span>
+        </div>
+        <button onClick={onLogout} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, fontSize:13, padding:"7px 16px", borderRadius:8, cursor:"pointer" }}>Logout</button>
+      </div>
+      <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 24px", display:"flex", gap:4, overflowX:"auto" }}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            style={{ background:"transparent", border:"none", borderBottom: tab===t.id ? `2px solid ${C.purple}` : "2px solid transparent", color: tab===t.id ? C.purple : C.textMuted, padding:"14px 14px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap", fontWeight: tab===t.id?600:500 }}>
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+      <div style={{ flex:1, padding:24, overflowY:"auto" }}>
+        {tab==="members" && <ManagerMembers data={data} refresh={refresh} />}
+        {tab==="tasks" && <AdminTasks data={data} refresh={refresh} />}
+        {tab==="attendance" && <AdminAttendance data={data} refresh={refresh} />}
+        {tab==="reports" && <AdminReports data={data} user={user} refresh={refresh} />}
+      </div>
+    </div>
+  )
+}
+
+function ManagerMembers({ data, refresh }) {
+  const [editId, setEditId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
+
+  const saveEdit = async () => {
+    if (!editForm.checkin_time || !editForm.end_time) return alert("Timing zaroori!")
+    const { error } = await supabase.from('members').update({
+      checkin_time: editForm.checkin_time,
+      end_time: editForm.end_time,
+      grace_minutes: editForm.grace_minutes,
+      job_description: editForm.job_description || null,
+    }).eq('id', editId)
+    if (error) return alert("Error: " + error.message)
+    setEditId(null); setEditForm(null)
+    refresh()
+  }
+
+  return (
+    <div>
+      <div style={{ background:C.purpleLight, border:`1px solid ${C.purple}`, borderRadius:10, padding:"12px 16px", marginBottom:20, fontSize:13, color:C.purple }}>
+        👔 <strong>Manager View</strong> — Aap sirf timing, grace period, aur job description edit kar sakte hain.
+      </div>
+      <h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>Members ({data.members.length})</h2>
+      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+        {data.members.map(m => editId === m.id ? (
+          <div key={m.id} style={{ background:C.surface, border:`2px solid ${C.purple}`, borderRadius:12, padding:18 }}>
+            <p style={{ color:C.text, fontSize:14, fontWeight:600, marginBottom:12 }}>👤 {m.name} <span style={{ color:C.textMuted, fontWeight:400 }}>· {m.role}</span></p>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:10 }}>
+              <div>
+                <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:4 }}>Start Time</label>
+                <input type="time" value={editForm.checkin_time} onChange={e=>setEditForm(f=>({...f,checkin_time:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+              </div>
+              <div>
+                <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:4 }}>End Time</label>
+                <input type="time" value={editForm.end_time} onChange={e=>setEditForm(f=>({...f,end_time:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+              </div>
+              <div>
+                <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:4 }}>Grace Period</label>
+                <select value={editForm.grace_minutes} onChange={e=>setEditForm(f=>({...f,grace_minutes:parseInt(e.target.value)}))} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
+                  {[5,10,15,20,30].map(g => <option key={g} value={g}>{g} min</option>)}
+                </select>
+              </div>
+            </div>
+            <label style={{ display:"block", fontSize:11, color:C.textMuted, marginBottom:4 }}>Job Description</label>
+            <textarea value={editForm.job_description} onChange={e=>setEditForm(f=>({...f,job_description:e.target.value}))} rows={2} placeholder="e.g. 10 TikTok videos daily edit karna" style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:12, resize:"vertical", fontFamily:"inherit" }} />
+            <button onClick={saveEdit} style={{ background:C.purple, border:"none", color:"#fff", padding:"9px 20px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600, marginRight:8 }}>Save</button>
+            <button onClick={()=>{setEditId(null);setEditForm(null)}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"9px 20px", borderRadius:8, fontSize:13, cursor:"pointer" }}>Cancel</button>
+          </div>
+        ) : (
+          <div key={m.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 18px", display:"flex", alignItems:"center", gap:14 }}>
+            <div style={{ width:40, height:40, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
+            <div style={{ flex:1 }}>
+              <p style={{ color:C.text, fontWeight:600, fontSize:14 }}>{m.name} {m.is_manager && <span style={{background:C.purpleLight, color:C.purple, fontSize:10, padding:"2px 6px", borderRadius:4, marginLeft:4}}>👔 MANAGER</span>}</p>
+              <p style={{ color:C.textMuted, fontSize:12 }}>{m.role} · 🕐 {to12(m.checkin_time)} → {to12(m.end_time||"18:00")} · Grace: {m.grace_minutes ?? 15}m</p>
+              {m.job_description && <p style={{ color:C.textLight, fontSize:11, marginTop:2 }}>💼 {m.job_description}</p>}
+            </div>
+            <button onClick={()=>{setEditId(m.id); setEditForm({checkin_time:m.checkin_time, end_time:m.end_time||"18:00", grace_minutes:m.grace_minutes??15, job_description:m.job_description||""})}} style={{ background:C.purpleLight, border:"none", color:C.purple, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>Edit Timing</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function AdminDashboard({ user, onLogout }) {
   const [tab, setTab] = useState("overview")
   const [data, setData] = useState({ members:[], tasks:[], attendance:{}, reports:{}, stats:{}, reportComments:{}, teams:[], accounts:[] })
@@ -1273,7 +1413,7 @@ function AdminMembers({ data, refresh }) {
       role:form.role, checkin_time:form.checkin_time,
       end_time:form.end_time, grace_minutes:form.grace_minutes,
       job_description:form.job_description||null,
-      avatar, is_admin:false, is_team_lead:false,
+      avatar, is_admin:false, is_team_lead:false, is_manager: !!form.is_manager,
       team_id:form.team_id||null, cgp_id:form.cgp_id||null
     })
     if (error) return alert("Error: " + error.message)
@@ -1292,7 +1432,8 @@ function AdminMembers({ data, refresh }) {
       role:editForm.role, checkin_time:editForm.checkin_time,
       end_time:editForm.end_time, grace_minutes:editForm.grace_minutes,
       job_description:editForm.job_description||null,
-      avatar, team_id:editForm.team_id||null, cgp_id:editForm.cgp_id||null
+      avatar, team_id:editForm.team_id||null, cgp_id:editForm.cgp_id||null,
+      is_manager: !!editForm.is_manager
     }).eq('id', editId)
     setEditId(null); setEditForm(null)
     refresh()
@@ -1339,7 +1480,7 @@ function AdminMembers({ data, refresh }) {
           <div key={m.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 18px", display:"flex", alignItems:"center", gap:14 }}>
             <div style={{ width:40, height:40, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
             <div style={{ flex:1 }}>
-              <p style={{ color:C.text, fontWeight:600, fontSize:14 }}>{m.name} {m.is_team_lead && <span style={{background:C.warningLight, color:C.warning, fontSize:10, padding:"2px 6px", borderRadius:4, marginLeft:4}}>👑 LEAD</span>}</p>
+              <p style={{ color:C.text, fontWeight:600, fontSize:14 }}>{m.name} {m.is_team_lead && <span style={{background:C.warningLight, color:C.warning, fontSize:10, padding:"2px 6px", borderRadius:4, marginLeft:4}}>👑 LEAD</span>} {m.is_manager && <span style={{background:C.purpleLight, color:C.purple, fontSize:10, padding:"2px 6px", borderRadius:4, marginLeft:4}}>👔 MANAGER</span>}</p>
               <p style={{ color:C.textMuted, fontSize:12 }}>
                 {m.email} · {m.role} · 🕐 {to12(m.checkin_time)} → {to12(m.end_time||"18:00")} (grace {m.grace_minutes ?? 15}m)
                 {m.team_id && ` · 👥 ${data.teams.find(t=>t.id===m.team_id)?.name || "Team"}`}
@@ -1347,7 +1488,7 @@ function AdminMembers({ data, refresh }) {
               </p>
               {m.job_description && <p style={{ color:C.primary, fontSize:11, marginTop:2 }}>💼 {m.job_description}</p>}
             </div>
-            <button onClick={()=>{setEditId(m.id); setEditForm({name:m.name, email:m.email, password:m.password, role:m.role, checkin_time:m.checkin_time, end_time:m.end_time||"18:00", grace_minutes:m.grace_minutes??15, job_description:m.job_description||"", team_id:m.team_id||"", cgp_id:m.cgp_id||""})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>Edit</button>
+            <button onClick={()=>{setEditId(m.id); setEditForm({name:m.name, email:m.email, password:m.password, role:m.role, checkin_time:m.checkin_time, end_time:m.end_time||"18:00", grace_minutes:m.grace_minutes??15, job_description:m.job_description||"", team_id:m.team_id||"", cgp_id:m.cgp_id||"", is_manager:!!m.is_manager})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>Edit</button>
             <button onClick={()=>deleteMember(m.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer" }}>✕</button>
           </div>
         ))}
