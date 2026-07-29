@@ -143,13 +143,13 @@ function LoginScreen({ form, setForm, onLogin, error }) {
 }
 
 // ============ SHARED: TikTok Sheet ============
-function TikTokSheet({ teamId, canEdit, filterByUserId, userName }) {
+function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountType }) {
   const [accounts, setAccounts] = useState([])
   const [categories, setCategories] = useState([])
   const [groupMembers, setGroupMembers] = useState([])
   const [comments, setComments] = useState({}) // account_id -> array of comments
   const [loading, setLoading] = useState(true)
-  const [form, setForm] = useState({ account_name:"", niche:"", tiktok_link:"", video_source:"", competitor_link:"", category:"", assigned_to:"" })
+  const [form, setForm] = useState({ account_name:"", niche:"", tiktok_link:"", video_source:"", competitor_link:"", category:"", assigned_to:"", account_type:"own" })
   const [adding, setAdding] = useState(false)
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState(null)
@@ -198,7 +198,7 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName }) {
   const addAccount = async () => {
     if (!form.account_name.trim()) { alert("Account name zaroori hai!"); return }
     await supabase.from('tiktok_accounts').insert({ id:"acc"+Date.now(), team_id:teamId, ...form, status:'not_yet', status_date:null })
-    setForm({ account_name:"", niche:"", tiktok_link:"", video_source:"", competitor_link:"", category:"", assigned_to:"" })
+    setForm({ account_name:"", niche:"", tiktok_link:"", video_source:"", competitor_link:"", category:"", assigned_to:"", account_type:"own" })
     setAdding(false)
     load()
   }
@@ -296,6 +296,12 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName }) {
               <option value="">👤 Unassigned</option>
               {groupMembers.map(m => <option key={m.id} value={m.id}>👤 {m.name}</option>)}
             </select>
+            {showAccountType && (
+              <select value={form.account_type} onChange={e=>setForm(f=>({...f,account_type:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
+                <option value="own">🏢 Own</option>
+                <option value="partnership">🤝 Partnership</option>
+              </select>
+            )}
           </div>
           <button onClick={addAccount} style={{ background:C.success, border:"none", color:"#fff", padding:"8px 20px", borderRadius:6, fontSize:13, cursor:"pointer", fontWeight:600 }}>Save Account</button>
         </div>
@@ -319,6 +325,7 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName }) {
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Account</th>
                 {!filterByUserId && <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Assigned To</th>}
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Category</th>
+                {showAccountType && <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Type</th>}
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Niche</th>
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>TikTok</th>
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Source</th>
@@ -345,6 +352,14 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName }) {
                     </select>
                   </td>}
                   <td style={{ padding:"6px 8px" }}>{catSelect(editForm.category, (v)=>setEditForm(f=>({...f,category:v})))}</td>
+                  {showAccountType && (
+                    <td style={{ padding:"6px 8px" }}>
+                      <select value={editForm.account_type||"own"} onChange={e=>setEditForm(f=>({...f,account_type:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }}>
+                        <option value="own">🏢 Own</option>
+                        <option value="partnership">🤝 Partnership</option>
+                      </select>
+                    </td>
+                  )}
                   <td style={{ padding:"6px 8px" }}><input value={editForm.niche} onChange={e=>setEditForm(f=>({...f,niche:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
                   <td style={{ padding:"6px 8px" }}><input value={editForm.tiktok_link} onChange={e=>setEditForm(f=>({...f,tiktok_link:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
                   <td style={{ padding:"6px 8px" }}><input value={editForm.video_source} onChange={e=>setEditForm(f=>({...f,video_source:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
@@ -372,6 +387,13 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName }) {
                   <td style={{ padding:"10px 12px" }}>
                     {acc.category ? <span style={{ background:catColor(acc.category)+"22", color:catColor(acc.category), fontSize:11, padding:"3px 10px", borderRadius:12, fontWeight:600 }}>{acc.category}</span> : "—"}
                   </td>
+                  {showAccountType && (
+                    <td style={{ padding:"10px 12px" }}>
+                      {(acc.account_type||"own") === "partnership" 
+                        ? <span style={{ background:C.orangeLight, color:C.orange, fontSize:11, padding:"3px 10px", borderRadius:12, fontWeight:600 }}>🤝 Partnership</span>
+                        : <span style={{ background:C.successLight, color:C.success, fontSize:11, padding:"3px 10px", borderRadius:12, fontWeight:600 }}>🏢 Own</span>}
+                    </td>
+                  )}
                   <td style={{ padding:"10px 12px" }}>{acc.niche || "—"}</td>
                   <td style={{ padding:"10px 12px" }}>{acc.tiktok_link ? <a href={acc.tiktok_link} target="_blank" rel="noopener noreferrer" style={{ color:C.primary, fontSize:12 }}>Open →</a> : "—"}</td>
                   <td style={{ padding:"10px 12px" }}>{acc.video_source || "—"}</td>
@@ -386,7 +408,7 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName }) {
                   </td>
                   {canEdit && (
                     <td style={{ padding:"8px", textAlign:"center" }}>
-                      <button onClick={()=>{setEditId(acc.id); setEditForm({account_name:acc.account_name, niche:acc.niche||"", tiktok_link:acc.tiktok_link||"", video_source:acc.video_source||"", competitor_link:acc.competitor_link||"", category:acc.category||"", assigned_to:acc.assigned_to||""})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer", marginRight:4, fontWeight:600 }}>Edit</button>
+                      <button onClick={()=>{setEditId(acc.id); setEditForm({account_name:acc.account_name, niche:acc.niche||"", tiktok_link:acc.tiktok_link||"", video_source:acc.video_source||"", competitor_link:acc.competitor_link||"", category:acc.category||"", assigned_to:acc.assigned_to||"", account_type:acc.account_type||"own"})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer", marginRight:4, fontWeight:600 }}>Edit</button>
                       <button onClick={()=>deleteAccount(acc.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer" }}>✕</button>
                     </td>
                   )}
@@ -394,7 +416,7 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName }) {
                   )
                 }
                 if (expandedId === acc.id) {
-                  const totalCols = 10 + (canEdit?2:0) + (!filterByUserId?1:0)
+                  const totalCols = 9 + (canEdit?2:0) + (!filterByUserId?1:0) + (showAccountType?1:0)
                   rows.push(
                     <tr key={acc.id+"_c"} style={{ background:C.bg }}>
                       <td colSpan={totalCols} style={{ padding:"14px 20px", borderBottom:`1px solid ${C.border}` }}>
@@ -1005,7 +1027,7 @@ function GroupsSection({ data, refresh, groupType, sectionLabel }) {
         <GroupMembersManage groupId={selectedTeam} groupMode={groupType} allMembers={data.members} refresh={refresh} canManage={true} />
 
         <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:12 }}>📊 TikTok Accounts</h3>
-        <TikTokSheet teamId={selectedTeam} canEdit={true} userName="Super Admin" />
+        <TikTokSheet teamId={selectedTeam} canEdit={true} userName="Super Admin" showAccountType={true} />
 
         <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:12 }}>🔗 Links</h3>
         <TeamLinks teamId={selectedTeam} canEdit={true} />
@@ -1155,6 +1177,9 @@ function AdminOverview({ data }) {
   const teamGroups = data.teams.filter(t=>(t.group_type||'team')==='team')
   const cgpGroups = data.teams.filter(t=>t.group_type==='cgp')
 
+  const ownAccounts = data.accounts.filter(a => (a.account_type||'own') === 'own').length
+  const partnershipAccounts = data.accounts.filter(a => a.account_type === 'partnership').length
+
   const cards = [
     { label:"Total Teams", value: teamGroups.length, color:C.primary },
     { label:"Total CGP", value: cgpGroups.length, color:C.purple },
@@ -1169,6 +1194,28 @@ function AdminOverview({ data }) {
     <div>
       <h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:6 }}>Super Admin Overview</h2>
       <p style={{ color:C.textMuted, fontSize:13, marginBottom:24 }}>{td}</p>
+
+      <h3 style={{ color:C.textMuted, fontSize:12, fontWeight:600, marginBottom:12, textTransform:"uppercase", letterSpacing:0.5 }}>Account Breakdown</h3>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:28 }}>
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderLeft:`4px solid ${C.success}`, borderRadius:12, padding:20 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+            <span style={{ fontSize:20 }}>🏢</span>
+            <p style={{ color:C.textMuted, fontSize:12, fontWeight:600, textTransform:"uppercase" }}>Total Own Accounts</p>
+          </div>
+          <p style={{ color:C.success, fontSize:32, fontWeight:700 }}>{ownAccounts}</p>
+          <p style={{ color:C.textLight, fontSize:11, marginTop:4 }}>Your own running accounts</p>
+        </div>
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderLeft:`4px solid ${C.orange}`, borderRadius:12, padding:20 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+            <span style={{ fontSize:20 }}>🤝</span>
+            <p style={{ color:C.textMuted, fontSize:12, fontWeight:600, textTransform:"uppercase" }}>Total Partnership</p>
+          </div>
+          <p style={{ color:C.orange, fontSize:32, fontWeight:700 }}>{partnershipAccounts}</p>
+          <p style={{ color:C.textLight, fontSize:11, marginTop:4 }}>Partnership accounts</p>
+        </div>
+      </div>
+
+      <h3 style={{ color:C.textMuted, fontSize:12, fontWeight:600, marginBottom:12, textTransform:"uppercase", letterSpacing:0.5 }}>Overall Stats</h3>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))", gap:14, marginBottom:28 }}>
         {cards.map(c => (
           <div key={c.label} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:"16px 18px" }}>
@@ -1186,13 +1233,15 @@ function AdminOverview({ data }) {
               const tm = data.members.filter(m => m[idField] === t.id)
               const ta = data.accounts.filter(a => a.team_id === t.id)
               const done = ta.filter(a => a.status === 'done' && a.status_date === td).length
+              const own = ta.filter(a => (a.account_type||'own') === 'own').length
+              const partnership = ta.filter(a => a.account_type === 'partnership').length
               const lead = data.members.find(m => m.id === t.team_lead_id)
               return (
                 <div key={t.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"14px 18px", display:"flex", alignItems:"center", gap:14 }}>
                   <div style={{ width:40, height:40, borderRadius:10, background:getColor(t.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, color:"#fff" }}>{t.group_type==='cgp'?"🚀":"👥"}</div>
                   <div style={{ flex:1 }}>
                     <p style={{ color:C.text, fontSize:14, fontWeight:600 }}>{t.name}</p>
-                    <p style={{ color:C.textMuted, fontSize:12 }}>👑 {lead?.name || "No Lead"} · 👤 {tm.length} · 📊 {ta.length} ({done} done today)</p>
+                    <p style={{ color:C.textMuted, fontSize:12 }}>👑 {lead?.name || "No Lead"} · 👤 {tm.length} · 📊 {ta.length} <span style={{ color:C.success }}>({own} own</span> · <span style={{ color:C.orange }}>{partnership} partnership)</span> · {done} done today</p>
                   </div>
                 </div>
               )
