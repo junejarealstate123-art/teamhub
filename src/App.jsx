@@ -87,7 +87,9 @@ export default function App() {
       isAdmin: data.is_admin,
       isManager: !data.is_admin && !!data.is_manager,
       isTeamLead: !data.is_admin && !data.is_manager && (data.is_team_lead || isAnyLead),
-      teamId: data.team_id, cgpId: data.cgp_id,
+      teamId: data.team_id,
+      cgpId: data.cgp_id,
+      cgpIds: [data.cgp_id, data.cgp_id_2, data.cgp_id_3].filter(Boolean),
       leadOfIds: (leadOf || []).map(x => x.id)
     }
     localStorage.setItem("teamhub-user", JSON.stringify(userData))
@@ -708,8 +710,20 @@ function MemberFormFields({ form, setForm, showTeam=false, showCgp=false, teamGr
             </select>
           )}
           {showCgp && (
-            <select value={form.cgp_id} onChange={e=>setForm(f=>({...f,cgp_id:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
-              <option value="">-- No CGP --</option>
+            <select value={form.cgp_id||""} onChange={e=>setForm(f=>({...f,cgp_id:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
+              <option value="">-- No CGP #1 --</option>
+              {cgpGroups.map(t => <option key={t.id} value={t.id}>🚀 {t.name}</option>)}
+            </select>
+          )}
+          {showCgp && (
+            <select value={form.cgp_id_2||""} onChange={e=>setForm(f=>({...f,cgp_id_2:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
+              <option value="">-- No CGP #2 --</option>
+              {cgpGroups.map(t => <option key={t.id} value={t.id}>🚀 {t.name}</option>)}
+            </select>
+          )}
+          {showCgp && (
+            <select value={form.cgp_id_3||""} onChange={e=>setForm(f=>({...f,cgp_id_3:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
+              <option value="">-- No CGP #3 --</option>
               {cgpGroups.map(t => <option key={t.id} value={t.id}>🚀 {t.name}</option>)}
             </select>
           )}
@@ -731,7 +745,7 @@ function MemberFormFields({ form, setForm, showTeam=false, showCgp=false, teamGr
 const emptyMemberForm = () => ({
   name:"", email:"", password:"", role:"",
   checkin_time:"09:00", end_time:"18:00", grace_minutes:15,
-  job_description:"", team_id:"", cgp_id:"", is_manager:false
+  job_description:"", team_id:"", cgp_id:"", cgp_id_2:"", cgp_id_3:"", is_manager:false
 })
 
 // ============ SHARED: Gmail Credentials Vault ============
@@ -866,18 +880,38 @@ function GmailAccounts({ teamId, canEdit }) {
 
 // ============ SHARED: Group Members Management ============
 function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage }) {
-  const idField = groupMode === 'cgp' ? 'cgp_id' : 'team_id'
+  const isCGP = groupMode === 'cgp'
   const [addMode, setAddMode] = useState(null)
   const [existingSelect, setExistingSelect] = useState("")
   const [newForm, setNewForm] = useState(emptyMemberForm())
   const [credShow, setCredShow] = useState(null)
 
-  const groupMembers = allMembers.filter(m => m[idField] === groupId)
-  const availableMembers = allMembers.filter(m => m[idField] !== groupId && !m.is_admin)
+  // Helper: check if member belongs to this group
+  const memberInGroup = (m) => isCGP
+    ? (m.cgp_id === groupId || m.cgp_id_2 === groupId || m.cgp_id_3 === groupId)
+    : (m.team_id === groupId)
+
+  // Find first empty CGP slot on a member
+  const findEmptyCgpSlot = (m) => {
+    if (!m.cgp_id) return 'cgp_id'
+    if (!m.cgp_id_2) return 'cgp_id_2'
+    if (!m.cgp_id_3) return 'cgp_id_3'
+    return null
+  }
+
+  const groupMembers = allMembers.filter(memberInGroup)
+  const availableMembers = allMembers.filter(m => !memberInGroup(m) && !m.is_admin)
 
   const addExisting = async () => {
     if (!existingSelect) return alert("Member select karein!")
-    await supabase.from('members').update({ [idField]:groupId }).eq('id', existingSelect)
+    if (isCGP) {
+      const member = allMembers.find(m => m.id === existingSelect)
+      const slot = findEmptyCgpSlot(member)
+      if (!slot) return alert("Yeh member already 3 CGPs mein hai (max limit)!")
+      await supabase.from('members').update({ [slot]: groupId }).eq('id', existingSelect)
+    } else {
+      await supabase.from('members').update({ team_id: groupId }).eq('id', existingSelect)
+    }
     setExistingSelect(""); setAddMode(null)
     refresh()
   }
@@ -887,13 +921,14 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
     const password = newForm.password || genPassword()
     const id = "m"+Date.now()
     const avatar = newForm.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()
+    const groupField = isCGP ? 'cgp_id' : 'team_id'
     const insertData = {
       id, name:newForm.name, email:newForm.email.toLowerCase(), password,
       role:newForm.role, checkin_time:newForm.checkin_time,
       end_time:newForm.end_time, grace_minutes:newForm.grace_minutes,
       job_description:newForm.job_description||null,
       avatar, is_admin:false, is_team_lead:false,
-      [idField]: groupId
+      [groupField]: groupId
     }
     const { error } = await supabase.from('members').insert(insertData)
     if (error) return alert("Error: " + error.message)
@@ -905,9 +940,17 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
   }
 
   const removeFromGroup = async (memberId) => {
-    if (!confirm(`${groupMode === 'cgp' ? 'CGP' : 'Team'} se remove karein?`)) return
-    const updateData = { [idField]:null }
-    if (groupMode === 'team') updateData.is_team_lead = false
+    if (!confirm(`${isCGP ? 'CGP' : 'Team'} se remove karein?`)) return
+    const member = allMembers.find(m => m.id === memberId)
+    let updateData = {}
+    if (isCGP) {
+      // Find which slot matches this groupId and clear it
+      if (member.cgp_id === groupId) updateData.cgp_id = null
+      else if (member.cgp_id_2 === groupId) updateData.cgp_id_2 = null
+      else if (member.cgp_id_3 === groupId) updateData.cgp_id_3 = null
+    } else {
+      updateData = { team_id: null, is_team_lead: false }
+    }
     await supabase.from('members').update(updateData).eq('id', memberId)
     refresh()
   }
@@ -988,16 +1031,32 @@ function GroupsSection({ data, refresh, groupType, sectionLabel }) {
   const [editForm, setEditForm] = useState(null)
 
   const groups = data.teams.filter(t => (t.group_type || 'team') === groupType)
-  const idField = groupType === 'cgp' ? 'cgp_id' : 'team_id'
+  const isCGP = groupType === 'cgp'
+
+  // Assign a member to this group (finds empty CGP slot if needed)
+  const assignLeadToGroup = async (leadId, teamId) => {
+    if (isCGP) {
+      const m = data.members.find(x => x.id === leadId)
+      if (!m) return
+      // Already in this CGP?
+      if (m.cgp_id === teamId || m.cgp_id_2 === teamId || m.cgp_id_3 === teamId) {
+        await supabase.from('members').update({ is_team_lead:true }).eq('id', leadId)
+        return
+      }
+      // Find empty slot
+      const slot = !m.cgp_id ? 'cgp_id' : !m.cgp_id_2 ? 'cgp_id_2' : !m.cgp_id_3 ? 'cgp_id_3' : null
+      if (!slot) { alert("Lead already 3 CGPs mein hai, pehle kisi se remove karo"); return }
+      await supabase.from('members').update({ [slot]:teamId, is_team_lead:true }).eq('id', leadId)
+    } else {
+      await supabase.from('members').update({ team_id:teamId, is_team_lead:true }).eq('id', leadId)
+    }
+  }
 
   const addTeam = async () => {
     if (!form.name.trim()) return alert("Name zaroori hai!")
     const id = "team"+Date.now()
     await supabase.from('teams').insert({ id, name:form.name, description:form.description, team_lead_id:form.team_lead_id||null, group_type:groupType })
-    if (form.team_lead_id) {
-      const updateData = { [idField]:id, is_team_lead: true }
-      await supabase.from('members').update(updateData).eq('id', form.team_lead_id)
-    }
+    if (form.team_lead_id) await assignLeadToGroup(form.team_lead_id, id)
     setForm({ name:"", description:"", team_lead_id:"" })
     setAdding(false)
     refresh()
@@ -1006,23 +1065,30 @@ function GroupsSection({ data, refresh, groupType, sectionLabel }) {
   const saveEdit = async () => {
     if (!editForm.name.trim()) return alert("Name zaroori!")
     const oldTeam = data.teams.find(t=>t.id===editId)
-    if (oldTeam?.team_lead_id && oldTeam.team_lead_id !== editForm.team_lead_id && groupType === 'team') {
+    if (oldTeam?.team_lead_id && oldTeam.team_lead_id !== editForm.team_lead_id && !isCGP) {
       await supabase.from('members').update({ is_team_lead:false }).eq('id', oldTeam.team_lead_id)
     }
     await supabase.from('teams').update({ name:editForm.name, description:editForm.description, team_lead_id:editForm.team_lead_id||null }).eq('id', editId)
-    if (editForm.team_lead_id) {
-      const updateData = { [idField]:editId, is_team_lead: true }
-      await supabase.from('members').update(updateData).eq('id', editForm.team_lead_id)
-    }
+    if (editForm.team_lead_id) await assignLeadToGroup(editForm.team_lead_id, editId)
     setEditId(null); setEditForm(null)
     refresh()
   }
 
   const deleteTeam = async (id) => {
     if (!confirm(`${sectionLabel} delete karein?`)) return
-    const updateData = { [idField]:null }
-    if (groupType === 'team') updateData.is_team_lead = false
-    await supabase.from('members').update(updateData).eq(idField, id)
+    if (isCGP) {
+      // Clear this cgp from any slot on any member
+      const affectedMembers = data.members.filter(m => m.cgp_id === id || m.cgp_id_2 === id || m.cgp_id_3 === id)
+      for (const m of affectedMembers) {
+        const upd = {}
+        if (m.cgp_id === id) upd.cgp_id = null
+        if (m.cgp_id_2 === id) upd.cgp_id_2 = null
+        if (m.cgp_id_3 === id) upd.cgp_id_3 = null
+        await supabase.from('members').update(upd).eq('id', m.id)
+      }
+    } else {
+      await supabase.from('members').update({ team_id:null, is_team_lead:false }).eq('team_id', id)
+    }
     await supabase.from('teams').delete().eq('id', id)
     refresh()
   }
@@ -1088,7 +1154,7 @@ function GroupsSection({ data, refresh, groupType, sectionLabel }) {
             <div style={{ width:44, height:44, borderRadius:10, background:getColor(t.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, color:"#fff" }}>{groupType === 'cgp' ? "🚀" : "👥"}</div>
             <div style={{ flex:1, cursor:"pointer" }} onClick={()=>setSelectedTeam(t.id)}>
               <p style={{ color:C.text, fontSize:15, fontWeight:600 }}>{t.name}</p>
-              <p style={{ color:C.textMuted, fontSize:12 }}>{t.description || "No description"} · 👤 {data.members.filter(m=>m[idField]===t.id).length} · 📊 {data.accounts.filter(a=>a.team_id===t.id).length}</p>
+              <p style={{ color:C.textMuted, fontSize:12 }}>{t.description || "No description"} · 👤 {data.members.filter(m => isCGP ? (m.cgp_id===t.id || m.cgp_id_2===t.id || m.cgp_id_3===t.id) : m.team_id===t.id).length} · 📊 {data.accounts.filter(a=>a.team_id===t.id).length}</p>
             </div>
             <button onClick={()=>setSelectedTeam(t.id)} style={{ background:C.primaryLight, border:"none", color:C.primary, padding:"7px 14px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>Open →</button>
             <button onClick={()=>{setEditId(t.id); setEditForm({name:t.name, description:t.description||"", team_lead_id:t.team_lead_id||""})}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"7px 12px", borderRadius:6, fontSize:12, cursor:"pointer" }}>Edit</button>
@@ -1365,12 +1431,14 @@ function AdminOverview({ data }) {
         ))}
       </div>
 
-      {[["Teams Breakdown", teamGroups, 'team_id'], ["CGP Breakdown", cgpGroups, 'cgp_id']].map(([label, groups, idField]) => groups.length > 0 && (
+      {[["Teams Breakdown", teamGroups, 'team'], ["CGP Breakdown", cgpGroups, 'cgp']].map(([label, groups, kind]) => groups.length > 0 && (
         <div key={label}>
           <h3 style={{ color:C.text, fontSize:14, fontWeight:600, marginBottom:14, textTransform:"uppercase" }}>{label}</h3>
           <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:24 }}>
             {groups.map(t => {
-              const tm = data.members.filter(m => m[idField] === t.id)
+              const tm = data.members.filter(m => kind === 'cgp' 
+                ? (m.cgp_id === t.id || m.cgp_id_2 === t.id || m.cgp_id_3 === t.id)
+                : m.team_id === t.id)
               const ta = data.accounts.filter(a => a.team_id === t.id)
               const done = ta.filter(a => a.status === 'done' && a.status_date === td).length
               const own = ta.filter(a => (a.account_type||'own') === 'own').length
@@ -1414,7 +1482,7 @@ function AdminMembers({ data, refresh }) {
       end_time:form.end_time, grace_minutes:form.grace_minutes,
       job_description:form.job_description||null,
       avatar, is_admin:false, is_team_lead:false, is_manager: !!form.is_manager,
-      team_id:form.team_id||null, cgp_id:form.cgp_id||null
+      team_id:form.team_id||null, cgp_id:form.cgp_id||null, cgp_id_2:form.cgp_id_2||null, cgp_id_3:form.cgp_id_3||null
     })
     if (error) return alert("Error: " + error.message)
     await supabase.from('member_stats').insert({ member_id:id, late_count:0, strikes:0 })
@@ -1432,7 +1500,7 @@ function AdminMembers({ data, refresh }) {
       role:editForm.role, checkin_time:editForm.checkin_time,
       end_time:editForm.end_time, grace_minutes:editForm.grace_minutes,
       job_description:editForm.job_description||null,
-      avatar, team_id:editForm.team_id||null, cgp_id:editForm.cgp_id||null,
+      avatar, team_id:editForm.team_id||null, cgp_id:editForm.cgp_id||null, cgp_id_2:editForm.cgp_id_2||null, cgp_id_3:editForm.cgp_id_3||null,
       is_manager: !!editForm.is_manager
     }).eq('id', editId)
     setEditId(null); setEditForm(null)
@@ -1485,10 +1553,12 @@ function AdminMembers({ data, refresh }) {
                 {m.email} · {m.role} · 🕐 {to12(m.checkin_time)} → {to12(m.end_time||"18:00")} (grace {m.grace_minutes ?? 15}m)
                 {m.team_id && ` · 👥 ${data.teams.find(t=>t.id===m.team_id)?.name || "Team"}`}
                 {m.cgp_id && ` · 🚀 ${data.teams.find(t=>t.id===m.cgp_id)?.name || "CGP"}`}
+                {m.cgp_id_2 && ` · 🚀 ${data.teams.find(t=>t.id===m.cgp_id_2)?.name || "CGP"}`}
+                {m.cgp_id_3 && ` · 🚀 ${data.teams.find(t=>t.id===m.cgp_id_3)?.name || "CGP"}`}
               </p>
               {m.job_description && <p style={{ color:C.primary, fontSize:11, marginTop:2 }}>💼 {m.job_description}</p>}
             </div>
-            <button onClick={()=>{setEditId(m.id); setEditForm({name:m.name, email:m.email, password:m.password, role:m.role, checkin_time:m.checkin_time, end_time:m.end_time||"18:00", grace_minutes:m.grace_minutes??15, job_description:m.job_description||"", team_id:m.team_id||"", cgp_id:m.cgp_id||"", is_manager:!!m.is_manager})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>Edit</button>
+            <button onClick={()=>{setEditId(m.id); setEditForm({name:m.name, email:m.email, password:m.password, role:m.role, checkin_time:m.checkin_time, end_time:m.end_time||"18:00", grace_minutes:m.grace_minutes??15, job_description:m.job_description||"", team_id:m.team_id||"", cgp_id:m.cgp_id||"", cgp_id_2:m.cgp_id_2||"", cgp_id_3:m.cgp_id_3||"", is_manager:!!m.is_manager})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>Edit</button>
             <button onClick={()=>deleteMember(m.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer" }}>✕</button>
           </div>
         ))}
@@ -1785,7 +1855,8 @@ function MemberDashboard({ user, onLogout }) {
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
-    const [{ data:tasks }, { data:att }, { data:reps }, { data:stats }, { data:rc }, teamRes, tmRes, cgpRes, cgpMemRes] = await Promise.all([
+    const cgpIds = user.cgpIds || (user.cgpId ? [user.cgpId] : [])
+    const [{ data:tasks }, { data:att }, { data:reps }, { data:stats }, { data:rc }, teamRes, tmRes, cgpsRes, cgpMembersRes] = await Promise.all([
       supabase.from('tasks').select('*').eq('assigned_to', user.id).order('created_at'),
       supabase.from('attendance').select('*').eq('member_id', user.id),
       supabase.from('reports').select('*').eq('member_id', user.id),
@@ -1793,19 +1864,33 @@ function MemberDashboard({ user, onLogout }) {
       supabase.from('report_comments').select('*').eq('report_member_id', user.id).order('created_at'),
       user.teamId ? supabase.from('teams').select('*').eq('id', user.teamId).maybeSingle() : Promise.resolve({data:null}),
       user.teamId ? supabase.from('members').select('*').eq('team_id', user.teamId) : Promise.resolve({data:[]}),
-      user.cgpId ? supabase.from('teams').select('*').eq('id', user.cgpId).maybeSingle() : Promise.resolve({data:null}),
-      user.cgpId ? supabase.from('members').select('*').eq('cgp_id', user.cgpId) : Promise.resolve({data:[]}),
+      cgpIds.length ? supabase.from('teams').select('*').in('id', cgpIds) : Promise.resolve({data:[]}),
+      cgpIds.length ? supabase.from('members').select('*').or(cgpIds.map(id=>`cgp_id.eq.${id},cgp_id_2.eq.${id},cgp_id_3.eq.${id}`).join(',')) : Promise.resolve({data:[]}),
     ])
     const attMap = {}; (att||[]).forEach(a=>{ attMap[a.date]={checkIn:a.check_in,checkOut:a.check_out,status:a.status} })
     const repMap = {}; (reps||[]).forEach(r=>{ repMap[r.date]={tasksCompleted:r.tasks_completed,hoursWorked:r.hours_worked,blockers:r.blockers,notes:r.notes} })
     const rcMap = {}; (rc||[]).forEach(c=>{ if(!rcMap[c.report_date]) rcMap[c.report_date]=[]; rcMap[c.report_date].push({author:c.author, text:c.text}) })
-    setData({ tasks:tasks||[], attendance:attMap, reports:repMap, stats:stats?{lateCount:stats.late_count, strikes:stats.strikes}:{lateCount:0,strikes:0}, reportComments:rcMap, team:teamRes.data, teamMembers:tmRes.data||[], cgp:cgpRes.data, cgpMembers:cgpMemRes.data||[] })
+    // Map cgpId -> list of members in that CGP
+    const cgpMembersMap = {}
+    ;(cgpMembersRes.data||[]).forEach(m => {
+      cgpIds.forEach(id => {
+        if (m.cgp_id === id || m.cgp_id_2 === id || m.cgp_id_3 === id) {
+          if (!cgpMembersMap[id]) cgpMembersMap[id] = []
+          cgpMembersMap[id].push(m)
+        }
+      })
+    })
+    // Order CGPs to match cgpIds order
+    const cgpsOrdered = cgpIds.map(id => (cgpsRes.data||[]).find(x=>x.id===id)).filter(Boolean)
+    setData({ tasks:tasks||[], attendance:attMap, reports:repMap, stats:stats?{lateCount:stats.late_count, strikes:stats.strikes}:{lateCount:0,strikes:0}, reportComments:rcMap, team:teamRes.data, teamMembers:tmRes.data||[], cgps:cgpsOrdered, cgpMembersMap })
     setLoading(false)
-  }, [user.id, user.teamId, user.cgpId])
+  }, [user.id, user.teamId, JSON.stringify(user.cgpIds||[])])
 
   useEffect(() => { refresh() }, [refresh])
 
   if (loading) return <Loader />
+
+  const cgps = data.cgps || []
 
   const tabs = [
     { id:"home", label:"Home", icon:"🏠" },
@@ -1813,7 +1898,7 @@ function MemberDashboard({ user, onLogout }) {
     { id:"report", label:"Daily Report", icon:"📋" },
   ]
   if (user.teamId) tabs.push({ id:"team", label:"My Team", icon:"👥" })
-  if (user.cgpId) tabs.push({ id:"cgp", label:"My CGP", icon:"🚀" })
+  cgps.forEach((c, i) => tabs.push({ id:"cgp_"+i, label: c.name || (i===0 ? "My CGP" : "CGP "+(i+1)), icon:"🚀" }))
   tabs.push({ id:"niche", label:"Niche Ideas", icon:"💡" })
   tabs.push({ id:"voiceover", label:"Voiceover Ideas", icon:"🎙️" })
 
@@ -1827,7 +1912,7 @@ function MemberDashboard({ user, onLogout }) {
             <p style={{ color:C.textMuted, fontSize:11 }}>
               {user.role}
               {data.team && ` · 👥 ${data.team.name}`}
-              {data.cgp && ` · 🚀 ${data.cgp.name}`}
+              {(data.cgps||[]).map(c => ` · 🚀 ${c.name}`).join('')}
             </p>
           </div>
         </div>
@@ -1846,7 +1931,7 @@ function MemberDashboard({ user, onLogout }) {
         {tab==="tasks" && <MemberTasks data={data} refresh={refresh} />}
         {tab==="report" && <MemberReport data={data} user={user} refresh={refresh} />}
         {tab==="team" && <MemberGroupView group={data.team} groupMembers={data.teamMembers} groupMode="team" user={user} />}
-        {tab==="cgp" && <MemberGroupView group={data.cgp} groupMembers={data.cgpMembers} groupMode="cgp" user={user} />}
+        {cgps.map((c, i) => tab==="cgp_"+i && <MemberGroupView key={c.id} group={c} groupMembers={(data.cgpMembersMap||{})[c.id]||[]} groupMode="cgp" user={user} />)}
         {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas</h2><IdeasBoard user={user} table="niche_ideas" title="Niche Ideas Board" emoji="💡" /></div>}
         {tab==="voiceover" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🎙️ Voiceover Ideas</h2><IdeasBoard user={user} table="voiceover_ideas" title="Voiceover Ideas Board" emoji="🎙️" /></div>}
       </div>
