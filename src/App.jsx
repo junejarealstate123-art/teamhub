@@ -164,18 +164,31 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data:accs }, { data:cats }, { data:mems1 }, { data:mems2 }, { data:coms }] = await Promise.all([
+    const [{ data:accs }, { data:cats }, { data:allMembers }, { data:teams }, { data:coms }] = await Promise.all([
       supabase.from('tiktok_accounts').select('*').eq('team_id', teamId).order('sort_order', { nullsFirst:false }).order('created_at'),
       supabase.from('account_categories').select('*').order('created_at'),
-      supabase.from('members').select('id, name, avatar').eq('team_id', teamId),
-      supabase.from('members').select('id, name, avatar').eq('cgp_id', teamId),
+      supabase.from('members').select('*').eq('is_admin', false),
+      supabase.from('teams').select('id, name, group_type'),
       supabase.from('account_comments').select('*').order('created_at'),
     ])
     setAccounts(accs || [])
     setCategories(cats || [])
-    const memMap = {}
-    ;[...(mems1||[]), ...(mems2||[])].forEach(m => { memMap[m.id] = m })
-    setGroupMembers(Object.values(memMap))
+    // Annotate members with their group label
+    const teamsMap = Object.fromEntries((teams||[]).map(t => [t.id, t]))
+    const annotated = (allMembers||[]).map(m => {
+      const homeTeam = m.team_id && teamsMap[m.team_id]
+      const cgps = [m.cgp_id, m.cgp_id_2, m.cgp_id_3].filter(Boolean).map(id => teamsMap[id]?.name).filter(Boolean)
+      const inThisGroup = m.team_id === teamId || m.cgp_id === teamId || m.cgp_id_2 === teamId || m.cgp_id_3 === teamId
+      let label = m.name
+      if (!inThisGroup) {
+        const from = homeTeam?.name || cgps[0] || "Other"
+        label = `${m.name} (from ${from})`
+      }
+      return { ...m, label, inThisGroup }
+    })
+    // Sort: members in this group first
+    annotated.sort((a,b) => (b.inThisGroup?1:0) - (a.inThisGroup?1:0))
+    setGroupMembers(annotated)
     const cMap = {}
     ;(coms || []).forEach(c => { if (!cMap[c.account_id]) cMap[c.account_id] = []; cMap[c.account_id].push(c) })
     setComments(cMap)
@@ -299,7 +312,7 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
             {catSelect(form.category, (v)=>setForm(f=>({...f,category:v})))}
             <select value={form.assigned_to} onChange={e=>setForm(f=>({...f,assigned_to:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
               <option value="">👤 Unassigned</option>
-              {groupMembers.map(m => <option key={m.id} value={m.id}>👤 {m.name}</option>)}
+              {groupMembers.map(m => <option key={m.id} value={m.id}>👤 {m.label}</option>)}
             </select>
             {showAccountType && (
               <select value={form.account_type} onChange={e=>setForm(f=>({...f,account_type:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
@@ -353,7 +366,7 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
                   {!filterByUserId && <td style={{ padding:"6px 8px" }}>
                     <select value={editForm.assigned_to||""} onChange={e=>setEditForm(f=>({...f,assigned_to:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }}>
                       <option value="">👤 Unassigned</option>
-                      {groupMembers.map(m => <option key={m.id} value={m.id}>👤 {m.name}</option>)}
+                      {groupMembers.map(m => <option key={m.id} value={m.id}>👤 {m.label}</option>)}
                     </select>
                   </td>}
                   <td style={{ padding:"6px 8px" }}>{catSelect(editForm.category, (v)=>setEditForm(f=>({...f,category:v})))}</td>
