@@ -173,21 +173,15 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
     ])
     setAccounts(accs || [])
     setCategories(cats || [])
-    // Annotate members with their group label
     const teamsMap = Object.fromEntries((teams||[]).map(t => [t.id, t]))
-    const annotated = (allMembers||[]).map(m => {
-      const homeTeam = m.team_id && teamsMap[m.team_id]
-      const cgps = [m.cgp_id, m.cgp_id_2, m.cgp_id_3].filter(Boolean).map(id => teamsMap[id]?.name).filter(Boolean)
-      const inThisGroup = m.team_id === teamId || m.cgp_id === teamId || m.cgp_id_2 === teamId || m.cgp_id_3 === teamId
-      let label = m.name
-      if (!inThisGroup) {
-        const from = homeTeam?.name || cgps[0] || "Other"
-        label = `${m.name} (from ${from})`
-      }
-      return { ...m, label, inThisGroup }
-    })
-    // Sort: members in this group first
-    annotated.sort((a,b) => (b.inThisGroup?1:0) - (a.inThisGroup?1:0))
+    const currentGroup = teamsMap[teamId]
+    const isCurrentCGP = currentGroup?.group_type === 'cgp'
+    // Only members who belong to this specific group (team or CGP)
+    const memberList = (allMembers||[]).filter(m => isCurrentCGP
+      ? (m.cgp_id === teamId || m.cgp_id_2 === teamId || m.cgp_id_3 === teamId)
+      : (m.team_id === teamId)
+    )
+    const annotated = memberList.map(m => ({ ...m, label: m.name, inThisGroup: true }))
     setGroupMembers(annotated)
     const cMap = {}
     ;(coms || []).forEach(c => { if (!cMap[c.account_id]) cMap[c.account_id] = []; cMap[c.account_id].push(c) })
