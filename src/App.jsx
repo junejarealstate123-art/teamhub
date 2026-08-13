@@ -148,6 +148,18 @@ function LoginScreen({ form, setForm, onLogin, error }) {
 
 // ============ SHARED: TikTok Sheet ============
 function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountType }) {
+  // Show partnership only when admin toggles it on (from Overview)
+  const [showTypeCol, setShowTypeCol] = useState(() => showAccountType && localStorage.getItem('teamhub-show-partnership') === 'true')
+  useEffect(() => {
+    const handler = () => setShowTypeCol(showAccountType && localStorage.getItem('teamhub-show-partnership') === 'true')
+    window.addEventListener('storage', handler)
+    return () => window.removeEventListener('storage', handler)
+  }, [showAccountType])
+  const toggleTypeCol = () => {
+    const v = !showTypeCol
+    setShowTypeCol(v)
+    localStorage.setItem('teamhub-show-partnership', String(v))
+  }
   const [accounts, setAccounts] = useState([])
   const [categories, setCategories] = useState([])
   const [groupMembers, setGroupMembers] = useState([])
@@ -289,10 +301,15 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
         ⏰ Status har naye din automatically "Not Yet" ho jata hai
       </div>
       {canEdit && (
-        <div style={{ marginBottom:14 }}>
+        <div style={{ marginBottom:14, display:"flex", gap:8, flexWrap:"wrap" }}>
           <button onClick={()=>setAdding(!adding)} style={{ background:C.primary, border:"none", color:"#fff", padding:"8px 18px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>
             {adding ? "Cancel" : "+ Add Account"}
           </button>
+          {showAccountType && (
+            <button onClick={toggleTypeCol} style={{ background: showTypeCol ? C.orange : "transparent", border:`1px solid ${showTypeCol ? C.orange : C.border}`, color: showTypeCol ? "#fff" : C.textMuted, padding:"8px 14px", borderRadius:8, fontSize:12, cursor:"pointer", fontWeight:600 }}>
+              {showTypeCol ? "🙈 Hide" : "👁️ Show"} Own/Partnership
+            </button>
+          )}
         </div>
       )}
       {adding && canEdit && (
@@ -308,7 +325,7 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
               <option value="">👤 Unassigned</option>
               {groupMembers.map(m => <option key={m.id} value={m.id}>👤 {m.label}</option>)}
             </select>
-            {showAccountType && (
+            {showTypeCol && (
               <select value={form.account_type} onChange={e=>setForm(f=>({...f,account_type:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
                 <option value="own">🏢 Own</option>
                 <option value="partnership">🤝 Partnership</option>
@@ -337,7 +354,7 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Account</th>
                 {!filterByUserId && <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Assigned To</th>}
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Category</th>
-                {showAccountType && <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Type</th>}
+                {showTypeCol && <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Type</th>}
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Niche</th>
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>TikTok</th>
                 <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Source</th>
@@ -364,7 +381,7 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
                     </select>
                   </td>}
                   <td style={{ padding:"6px 8px" }}>{catSelect(editForm.category, (v)=>setEditForm(f=>({...f,category:v})))}</td>
-                  {showAccountType && (
+                  {showTypeCol && (
                     <td style={{ padding:"6px 8px" }}>
                       <select value={editForm.account_type||"own"} onChange={e=>setEditForm(f=>({...f,account_type:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }}>
                         <option value="own">🏢 Own</option>
@@ -399,7 +416,7 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
                   <td style={{ padding:"10px 12px" }}>
                     {acc.category ? <span style={{ background:catColor(acc.category)+"22", color:catColor(acc.category), fontSize:11, padding:"3px 10px", borderRadius:12, fontWeight:600 }}>{acc.category}</span> : "—"}
                   </td>
-                  {showAccountType && (
+                  {showTypeCol && (
                     <td style={{ padding:"10px 12px" }}>
                       {(acc.account_type||"own") === "partnership" 
                         ? <span style={{ background:C.orangeLight, color:C.orange, fontSize:11, padding:"3px 10px", borderRadius:12, fontWeight:600 }}>🤝 Partnership</span>
@@ -428,7 +445,7 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
                   )
                 }
                 if (expandedId === acc.id) {
-                  const totalCols = 9 + (canEdit?2:0) + (!filterByUserId?1:0) + (showAccountType?1:0)
+                  const totalCols = 9 + (canEdit?2:0) + (!filterByUserId?1:0) + (showTypeCol?1:0)
                   rows.push(
                     <tr key={acc.id+"_c"} style={{ background:C.bg }}>
                       <td colSpan={totalCols} style={{ padding:"14px 20px", borderBottom:`1px solid ${C.border}` }}>
@@ -1393,6 +1410,13 @@ function AdminOverview({ data }) {
   const ownAccounts = data.accounts.filter(a => (a.account_type||'own') === 'own').length
   const partnershipAccounts = data.accounts.filter(a => a.account_type === 'partnership').length
 
+  const [showPartnership, setShowPartnership] = useState(() => localStorage.getItem('teamhub-show-partnership') === 'true')
+  const togglePartnership = () => {
+    const v = !showPartnership
+    setShowPartnership(v)
+    localStorage.setItem('teamhub-show-partnership', String(v))
+  }
+
   const cards = [
     { label:"Total Teams", value: teamGroups.length, color:C.primary },
     { label:"Total CGP", value: cgpGroups.length, color:C.purple },
@@ -1408,25 +1432,35 @@ function AdminOverview({ data }) {
       <h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:6 }}>Super Admin Overview</h2>
       <p style={{ color:C.textMuted, fontSize:13, marginBottom:24 }}>{td}</p>
 
-      <h3 style={{ color:C.textMuted, fontSize:12, fontWeight:600, marginBottom:12, textTransform:"uppercase", letterSpacing:0.5 }}>Account Breakdown</h3>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:28 }}>
-        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderLeft:`4px solid ${C.success}`, borderRadius:12, padding:20 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
-            <span style={{ fontSize:20 }}>🏢</span>
-            <p style={{ color:C.textMuted, fontSize:12, fontWeight:600, textTransform:"uppercase" }}>Total Own Accounts</p>
-          </div>
-          <p style={{ color:C.success, fontSize:32, fontWeight:700 }}>{ownAccounts}</p>
-          <p style={{ color:C.textLight, fontSize:11, marginTop:4 }}>Your own running accounts</p>
-        </div>
-        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderLeft:`4px solid ${C.orange}`, borderRadius:12, padding:20 }}>
-          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
-            <span style={{ fontSize:20 }}>🤝</span>
-            <p style={{ color:C.textMuted, fontSize:12, fontWeight:600, textTransform:"uppercase" }}>Total Partnership</p>
-          </div>
-          <p style={{ color:C.orange, fontSize:32, fontWeight:700 }}>{partnershipAccounts}</p>
-          <p style={{ color:C.textLight, fontSize:11, marginTop:4 }}>Partnership accounts</p>
-        </div>
+      <div style={{ marginBottom:20 }}>
+        <button onClick={togglePartnership} style={{ background: showPartnership ? C.orange : "transparent", border:`1px solid ${showPartnership ? C.orange : C.border}`, color: showPartnership ? "#fff" : C.textMuted, fontSize:12, padding:"7px 14px", borderRadius:8, cursor:"pointer", fontWeight:600 }}>
+          {showPartnership ? "🙈 Hide" : "👁️ Show"} Own / Partnership Info
+        </button>
       </div>
+
+      {showPartnership && (
+        <>
+          <h3 style={{ color:C.textMuted, fontSize:12, fontWeight:600, marginBottom:12, textTransform:"uppercase", letterSpacing:0.5 }}>Account Breakdown</h3>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:28 }}>
+            <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderLeft:`4px solid ${C.success}`, borderRadius:12, padding:20 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                <span style={{ fontSize:20 }}>🏢</span>
+                <p style={{ color:C.textMuted, fontSize:12, fontWeight:600, textTransform:"uppercase" }}>Total Own Accounts</p>
+              </div>
+              <p style={{ color:C.success, fontSize:32, fontWeight:700 }}>{ownAccounts}</p>
+              <p style={{ color:C.textLight, fontSize:11, marginTop:4 }}>Your own running accounts</p>
+            </div>
+            <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderLeft:`4px solid ${C.orange}`, borderRadius:12, padding:20 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                <span style={{ fontSize:20 }}>🤝</span>
+                <p style={{ color:C.textMuted, fontSize:12, fontWeight:600, textTransform:"uppercase" }}>Total Partnership</p>
+              </div>
+              <p style={{ color:C.orange, fontSize:32, fontWeight:700 }}>{partnershipAccounts}</p>
+              <p style={{ color:C.textLight, fontSize:11, marginTop:4 }}>Partnership accounts</p>
+            </div>
+          </div>
+        </>
+      )}
 
       <h3 style={{ color:C.textMuted, fontSize:12, fontWeight:600, marginBottom:12, textTransform:"uppercase", letterSpacing:0.5 }}>Overall Stats</h3>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))", gap:14, marginBottom:28 }}>
@@ -1456,7 +1490,7 @@ function AdminOverview({ data }) {
                   <div style={{ width:40, height:40, borderRadius:10, background:getColor(t.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, color:"#fff" }}>{t.group_type==='cgp'?"🚀":"👥"}</div>
                   <div style={{ flex:1 }}>
                     <p style={{ color:C.text, fontSize:14, fontWeight:600 }}>{t.name}</p>
-                    <p style={{ color:C.textMuted, fontSize:12 }}>👑 {lead?.name || "No Lead"} · 👤 {tm.length} · 📊 {ta.length} <span style={{ color:C.success }}>({own} own</span> · <span style={{ color:C.orange }}>{partnership} partnership)</span> · {done} done today</p>
+                    <p style={{ color:C.textMuted, fontSize:12 }}>👑 {lead?.name || "No Lead"} · 👤 {tm.length} · 📊 {ta.length}{showPartnership && <> <span style={{ color:C.success }}>({own} own</span> · <span style={{ color:C.orange }}>{partnership} partnership)</span></>} · {done} done today</p>
                   </div>
                 </div>
               )
