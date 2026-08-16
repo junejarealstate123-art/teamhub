@@ -699,6 +699,7 @@ function MemberFormFields({ form, setForm, showTeam=false, showCgp=false, teamGr
         <input value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} placeholder="Email *" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
         <input value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} placeholder="Password (optional)" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
         <input value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))} placeholder="Role *" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+        <input value={form.phone||""} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} placeholder="📱 WhatsApp # (with country code, e.g. 923001234567)" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", gridColumn:"1/-1" }} />
       </div>
       <div style={{ background:C.primaryLight, borderRadius:8, padding:12, marginBottom:10 }}>
         <p style={{ color:C.primary, fontSize:12, fontWeight:600, marginBottom:8 }}>⏰ Timing & Job</p>
@@ -767,7 +768,7 @@ function MemberFormFields({ form, setForm, showTeam=false, showCgp=false, teamGr
 }
 
 const emptyMemberForm = () => ({
-  name:"", email:"", password:"", role:"",
+  name:"", email:"", password:"", role:"", phone:"",
   checkin_time:"09:00", end_time:"18:00", grace_minutes:15,
   job_description:"", team_id:"", cgp_id:"", cgp_id_2:"", cgp_id_3:"", is_manager:false
 })
@@ -1405,6 +1406,92 @@ function AdminDashboard({ user, onLogout }) {
   )
 }
 
+function AbsenteesWarning({ data }) {
+  const td = today()
+  const [threshold, setThreshold] = useState(() => parseInt(localStorage.getItem('teamhub-absent-threshold')||'3'))
+  const [collapsed, setCollapsed] = useState(false)
+
+  const changeThreshold = (v) => {
+    setThreshold(v)
+    localStorage.setItem('teamhub-absent-threshold', String(v))
+  }
+
+  // Calculate consecutive days of no attendance for each member
+  const absentees = data.members.map(m => {
+    let consecutive = 0
+    // Check last N days going backward from today
+    for (let i = 0; i < 30; i++) {
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year:'numeric', month:'2-digit', day:'2-digit' }).format(d)
+      const att = (data.attendance[dateStr] || {})[m.id]
+      if (att) break
+      consecutive++
+    }
+    return { ...m, consecutive }
+  }).filter(m => m.consecutive >= threshold).sort((a,b) => b.consecutive - a.consecutive)
+
+  const sendWhatsApp = (m) => {
+    if (!m.phone) { alert("Iss member ka WhatsApp number nahi hai. Members tab me edit karke phone add karo."); return }
+    // Clean phone: remove +, spaces, dashes
+    const cleanPhone = m.phone.replace(/[^0-9]/g, '')
+    const msg = `Assalam u Alaikum ${m.name.split(' ')[0]}! 👋\n\nAap ${m.consecutive} din se attendance nahi laga rahe hain. Please TeamHub pe check-in karein aur active hon.\n\nKoi problem ho to bataiye.\n\n— Junejarealstate Team`
+    const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`
+    window.open(url, '_blank')
+  }
+
+  if (absentees.length === 0) {
+    return (
+      <div style={{ background:C.successLight, border:`1px solid ${C.success}`, borderRadius:12, padding:14, marginBottom:20, display:"flex", alignItems:"center", gap:10 }}>
+        <span style={{ fontSize:20 }}>✅</span>
+        <div style={{ flex:1 }}>
+          <p style={{ color:C.success, fontSize:13, fontWeight:600 }}>All Good! Koi member {threshold}+ din se absent nahi hai.</p>
+        </div>
+        <select value={threshold} onChange={e=>changeThreshold(parseInt(e.target.value))} style={{ border:`1px solid ${C.success}`, borderRadius:6, padding:"4px 8px", fontSize:11, background:"#fff" }}>
+          {[2,3,4,5,7].map(n => <option key={n} value={n}>{n}+ days threshold</option>)}
+        </select>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ background:C.dangerLight, border:`1px solid ${C.danger}`, borderRadius:12, padding:16, marginBottom:20 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:collapsed?0:14, flexWrap:"wrap" }}>
+        <span style={{ fontSize:24 }}>🚨</span>
+        <div style={{ flex:1, minWidth:200 }}>
+          <p style={{ color:C.danger, fontSize:14, fontWeight:700 }}>{absentees.length} member{absentees.length>1?'s':''} {threshold}+ din se absent!</p>
+          <p style={{ color:C.danger, fontSize:11, opacity:0.85, marginTop:2 }}>WhatsApp warning bhejo taake reactivate hon.</p>
+        </div>
+        <select value={threshold} onChange={e=>changeThreshold(parseInt(e.target.value))} style={{ border:`1px solid ${C.danger}`, borderRadius:6, padding:"5px 8px", fontSize:11, background:"#fff", color:C.danger, fontWeight:600 }}>
+          {[2,3,4,5,7].map(n => <option key={n} value={n}>{n}+ days</option>)}
+        </select>
+        <button onClick={()=>setCollapsed(!collapsed)} style={{ background:"transparent", border:`1px solid ${C.danger}`, color:C.danger, fontSize:11, padding:"5px 10px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>
+          {collapsed ? "Show" : "Hide"}
+        </button>
+      </div>
+      {!collapsed && (
+        <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+          {absentees.map(m => (
+            <div key={m.id} style={{ background:"#fff", borderRadius:8, padding:"10px 14px", display:"flex", alignItems:"center", gap:12, border:`1px solid ${C.danger}44` }}>
+              <div style={{ width:32, height:32, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <p style={{ color:C.text, fontSize:13, fontWeight:600 }}>{m.name}</p>
+                <p style={{ color:C.textMuted, fontSize:11 }}>{m.role} · {m.phone ? `📱 ${m.phone}` : <span style={{color:C.danger}}>❌ No phone number</span>}</p>
+              </div>
+              <span style={{ background:C.dangerLight, color:C.danger, padding:"4px 10px", borderRadius:12, fontSize:12, fontWeight:700 }}>
+                {m.consecutive} days absent
+              </span>
+              <button onClick={()=>sendWhatsApp(m)} disabled={!m.phone} style={{ background: m.phone ? "#25D366" : C.border, border:"none", color:"#fff", padding:"7px 14px", borderRadius:6, fontSize:12, cursor: m.phone?"pointer":"not-allowed", fontWeight:600, display:"flex", alignItems:"center", gap:4 }}>
+                💬 Send WhatsApp
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AnalyticsDashboard({ data }) {
   const td = today()
   // Compute last 7 days
@@ -1678,7 +1765,9 @@ function AdminOverview({ data }) {
   return (
     <div>
       <h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:6 }}>Super Admin Overview</h2>
-      <p style={{ color:C.textMuted, fontSize:13, marginBottom:24 }}>{td}</p>
+      <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{td}</p>
+
+      <AbsenteesWarning data={data} />
 
       <div style={{ marginBottom:20 }}>
         <button onClick={togglePartnership} style={{ background: showPartnership ? C.orange : "transparent", border:`1px solid ${showPartnership ? C.orange : C.border}`, color: showPartnership ? "#fff" : C.textMuted, fontSize:12, padding:"7px 14px", borderRadius:8, cursor:"pointer", fontWeight:600 }}>
@@ -1767,7 +1856,7 @@ function AdminMembers({ data, refresh }) {
     const avatar = form.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()
     const { error } = await supabase.from('members').insert({
       id, name:form.name, email:form.email.toLowerCase(), password,
-      role:form.role, checkin_time:form.checkin_time,
+      role:form.role, phone:form.phone||null, checkin_time:form.checkin_time,
       end_time:form.end_time, grace_minutes:form.grace_minutes,
       job_description:form.job_description||null,
       avatar, is_admin:false, is_team_lead:false, is_manager: !!form.is_manager,
@@ -1786,7 +1875,7 @@ function AdminMembers({ data, refresh }) {
     const avatar = editForm.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()
     await supabase.from('members').update({
       name:editForm.name, email:editForm.email.toLowerCase(), password:editForm.password,
-      role:editForm.role, checkin_time:editForm.checkin_time,
+      role:editForm.role, phone:editForm.phone||null, checkin_time:editForm.checkin_time,
       end_time:editForm.end_time, grace_minutes:editForm.grace_minutes,
       job_description:editForm.job_description||null,
       avatar, team_id:editForm.team_id||null, cgp_id:editForm.cgp_id||null, cgp_id_2:editForm.cgp_id_2||null, cgp_id_3:editForm.cgp_id_3||null,
@@ -1839,7 +1928,7 @@ function AdminMembers({ data, refresh }) {
             <div style={{ flex:1 }}>
               <p style={{ color:C.text, fontWeight:600, fontSize:14 }}>{m.name} {m.is_team_lead && <span style={{background:C.warningLight, color:C.warning, fontSize:10, padding:"2px 6px", borderRadius:4, marginLeft:4}}>👑 LEAD</span>} {m.is_manager && <span style={{background:C.purpleLight, color:C.purple, fontSize:10, padding:"2px 6px", borderRadius:4, marginLeft:4}}>👔 MANAGER</span>}</p>
               <p style={{ color:C.textMuted, fontSize:12 }}>
-                {m.email} · {m.role} · 🕐 {to12(m.checkin_time)} → {to12(m.end_time||"18:00")} (grace {m.grace_minutes ?? 15}m)
+                {m.email} · {m.role}{m.phone && ` · 📱 ${m.phone}`} · 🕐 {to12(m.checkin_time)} → {to12(m.end_time||"18:00")} (grace {m.grace_minutes ?? 15}m)
                 {m.team_id && ` · 👥 ${data.teams.find(t=>t.id===m.team_id)?.name || "Team"}`}
                 {m.cgp_id && ` · 🚀 ${data.teams.find(t=>t.id===m.cgp_id)?.name || "CGP"}`}
                 {m.cgp_id_2 && ` · 🚀 ${data.teams.find(t=>t.id===m.cgp_id_2)?.name || "CGP"}`}
@@ -1847,7 +1936,7 @@ function AdminMembers({ data, refresh }) {
               </p>
               {m.job_description && <p style={{ color:C.primary, fontSize:11, marginTop:2 }}>💼 {m.job_description}</p>}
             </div>
-            <button onClick={()=>{setEditId(m.id); setEditForm({name:m.name, email:m.email, password:m.password, role:m.role, checkin_time:m.checkin_time, end_time:m.end_time||"18:00", grace_minutes:m.grace_minutes??15, job_description:m.job_description||"", team_id:m.team_id||"", cgp_id:m.cgp_id||"", cgp_id_2:m.cgp_id_2||"", cgp_id_3:m.cgp_id_3||"", is_manager:!!m.is_manager})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>Edit</button>
+            <button onClick={()=>{setEditId(m.id); setEditForm({name:m.name, email:m.email, password:m.password, role:m.role, phone:m.phone||"", checkin_time:m.checkin_time, end_time:m.end_time||"18:00", grace_minutes:m.grace_minutes??15, job_description:m.job_description||"", team_id:m.team_id||"", cgp_id:m.cgp_id||"", cgp_id_2:m.cgp_id_2||"", cgp_id_3:m.cgp_id_3||"", is_manager:!!m.is_manager})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>Edit</button>
             <button onClick={()=>deleteMember(m.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer" }}>✕</button>
           </div>
         ))}
@@ -1925,6 +2014,7 @@ function AdminAttendance({ data, refresh }) {
   }
   return (
     <div>
+      <AbsenteesWarning data={data} />
       <div style={{ display:"flex", gap:16, marginBottom:20, alignItems:"center", flexWrap:"wrap" }}>
         <h2 style={{ color:C.text, fontSize:20, fontWeight:700 }}>Attendance</h2>
         <input type="date" value={viewDate} onChange={e=>setViewDate(e.target.value)} style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"7px 12px", fontSize:13 }} />
