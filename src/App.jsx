@@ -1227,6 +1227,8 @@ function ManagerDashboard({ user, onLogout }) {
     { id:"tasks", label:"Tasks", icon:"✅" },
     { id:"attendance", label:"Attendance", icon:"🕐" },
     { id:"reports", label:"Reports", icon:"📋" },
+    { id:"analytics", label:"Analytics", icon:"📈" },
+    { id:"leaderboard", label:"Leaderboard", icon:"🏆" },
   ]
 
   if (loading) return <Loader />
@@ -1255,6 +1257,8 @@ function ManagerDashboard({ user, onLogout }) {
         {tab==="tasks" && <AdminTasks data={data} refresh={refresh} />}
         {tab==="attendance" && <AdminAttendance data={data} refresh={refresh} />}
         {tab==="reports" && <AdminReports data={data} user={user} refresh={refresh} />}
+        {tab==="analytics" && <AnalyticsDashboard data={data} />}
+        {tab==="leaderboard" && <LeaderboardView data={data} />}
       </div>
     </div>
   )
@@ -1352,6 +1356,8 @@ function AdminDashboard({ user, onLogout }) {
 
   const tabs = [
     { id:"overview", label:"Overview", icon:"📊" },
+    { id:"analytics", label:"Analytics", icon:"📈" },
+    { id:"leaderboard", label:"Leaderboard", icon:"🏆" },
     { id:"teams", label:"Teams", icon:"👥" },
     { id:"cgp", label:"CGP", icon:"🚀" },
     { id:"members", label:"Members", icon:"👤" },
@@ -1384,6 +1390,8 @@ function AdminDashboard({ user, onLogout }) {
       </div>
       <div style={{ flex:1, padding:24, overflowY:"auto" }}>
         {tab==="overview" && <AdminOverview data={data} />}
+        {tab==="analytics" && <AnalyticsDashboard data={data} />}
+        {tab==="leaderboard" && <LeaderboardView data={data} />}
         {tab==="teams" && <GroupsSection data={data} refresh={refresh} groupType="team" sectionLabel="Teams" />}
         {tab==="cgp" && <GroupsSection data={data} refresh={refresh} groupType="cgp" sectionLabel="CGP" />}
         {tab==="members" && <AdminMembers data={data} refresh={refresh} />}
@@ -1392,6 +1400,246 @@ function AdminDashboard({ user, onLogout }) {
         {tab==="reports" && <AdminReports data={data} user={user} refresh={refresh} />}
         {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas Board</h2><IdeasBoard user={user} table="niche_ideas" title="Niche Ideas Board" emoji="💡" /></div>}
         {tab==="voiceover" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🎙️ Voiceover Ideas Board</h2><IdeasBoard user={user} table="voiceover_ideas" title="Voiceover Ideas Board" emoji="🎙️" /></div>}
+      </div>
+    </div>
+  )
+}
+
+function AnalyticsDashboard({ data }) {
+  const td = today()
+  // Compute last 7 days
+  const days = []
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    days.push(new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year:'numeric', month:'2-digit', day:'2-digit' }).format(d))
+  }
+
+  // Attendance rate for each day (present / total members)
+  const totalMembers = data.members.length
+  const dayStats = days.map(d => {
+    const att = data.attendance[d] || {}
+    const present = Object.keys(att).length
+    const ontime = Object.values(att).filter(a => a.status === 'ontime').length
+    const late = Object.values(att).filter(a => a.status === 'late').length
+    const absent = totalMembers - present
+    const rate = totalMembers > 0 ? Math.round((present/totalMembers)*100) : 0
+    return { date:d, present, ontime, late, absent, rate }
+  })
+
+  const maxRate = Math.max(...dayStats.map(d => d.rate), 100)
+
+  // Overall stats last 7 days
+  const totalAttendances = dayStats.reduce((s,d) => s+d.present, 0)
+  const totalOntime = dayStats.reduce((s,d) => s+d.ontime, 0)
+  const totalLate = dayStats.reduce((s,d) => s+d.late, 0)
+  const totalPossible = totalMembers * 7
+  const overallRate = totalPossible > 0 ? Math.round((totalAttendances/totalPossible)*100) : 0
+  const ontimeRate = totalAttendances > 0 ? Math.round((totalOntime/totalAttendances)*100) : 0
+
+  // Task stats
+  const totalTasks = data.tasks.length
+  const doneTasks = data.tasks.filter(t => t.status === 'done').length
+  const pendingTasks = data.tasks.filter(t => t.status === 'pending').length
+  const overdueTasks = data.tasks.filter(t => t.status !== 'done' && isPastDate(t.deadline)).length
+  const completionRate = totalTasks > 0 ? Math.round((doneTasks/totalTasks)*100) : 0
+
+  // Account stats
+  const totalAccounts = data.accounts.length
+  const doneToday = data.accounts.filter(a => a.status === 'done' && a.status_date === td).length
+  const accountRate = totalAccounts > 0 ? Math.round((doneToday/totalAccounts)*100) : 0
+
+  const shortDate = (d) => {
+    const dt = new Date(d)
+    return new Intl.DateTimeFormat('en-GB', { timeZone: TZ, weekday:'short' }).format(dt)
+  }
+
+  return (
+    <div>
+      <h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:6 }}>📈 Analytics Dashboard</h2>
+      <p style={{ color:C.textMuted, fontSize:13, marginBottom:24 }}>Last 7 days performance</p>
+
+      {/* Overall Stats Cards */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:14, marginBottom:28 }}>
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderLeft:`4px solid ${C.success}`, borderRadius:12, padding:18 }}>
+          <p style={{ color:C.textMuted, fontSize:11, fontWeight:600, textTransform:"uppercase", marginBottom:6 }}>📊 Attendance Rate</p>
+          <p style={{ color:C.success, fontSize:28, fontWeight:700 }}>{overallRate}%</p>
+          <p style={{ color:C.textLight, fontSize:11 }}>{totalAttendances} check-ins / {totalPossible} possible</p>
+        </div>
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderLeft:`4px solid ${C.primary}`, borderRadius:12, padding:18 }}>
+          <p style={{ color:C.textMuted, fontSize:11, fontWeight:600, textTransform:"uppercase", marginBottom:6 }}>⚡ On-Time Rate</p>
+          <p style={{ color:C.primary, fontSize:28, fontWeight:700 }}>{ontimeRate}%</p>
+          <p style={{ color:C.textLight, fontSize:11 }}>{totalOntime} on-time · {totalLate} late</p>
+        </div>
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderLeft:`4px solid ${C.warning}`, borderRadius:12, padding:18 }}>
+          <p style={{ color:C.textMuted, fontSize:11, fontWeight:600, textTransform:"uppercase", marginBottom:6 }}>✅ Task Completion</p>
+          <p style={{ color:C.warning, fontSize:28, fontWeight:700 }}>{completionRate}%</p>
+          <p style={{ color:C.textLight, fontSize:11 }}>{doneTasks} done · {pendingTasks} pending · {overdueTasks} overdue</p>
+        </div>
+        <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderLeft:`4px solid ${C.orange}`, borderRadius:12, padding:18 }}>
+          <p style={{ color:C.textMuted, fontSize:11, fontWeight:600, textTransform:"uppercase", marginBottom:6 }}>🎯 Accounts Done Today</p>
+          <p style={{ color:C.orange, fontSize:28, fontWeight:700 }}>{accountRate}%</p>
+          <p style={{ color:C.textLight, fontSize:11 }}>{doneToday} / {totalAccounts} accounts</p>
+        </div>
+      </div>
+
+      {/* 7-Day Attendance Chart */}
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:24, marginBottom:24 }}>
+        <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginBottom:20 }}>📅 Attendance Trend (Last 7 Days)</h3>
+        <div style={{ display:"flex", alignItems:"flex-end", gap:10, height:200, marginBottom:16 }}>
+          {dayStats.map(d => {
+            const h = d.rate > 0 ? Math.max((d.rate/maxRate)*180, 4) : 4
+            const barColor = d.rate >= 80 ? C.success : d.rate >= 60 ? C.warning : d.rate >= 40 ? C.orange : C.danger
+            return (
+              <div key={d.date} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
+                <p style={{ color:C.textMuted, fontSize:11, fontWeight:600 }}>{d.rate}%</p>
+                <div style={{ background:barColor, width:"100%", height:h, borderRadius:"6px 6px 0 0", transition:"all 0.3s" }} title={`${d.present}/${totalMembers} present · ${d.ontime} on-time · ${d.late} late`} />
+                <p style={{ color:C.textMuted, fontSize:11, fontWeight:600 }}>{shortDate(d.date)}</p>
+                <p style={{ color:C.textLight, fontSize:9 }}>{d.date.slice(8)}</p>
+              </div>
+            )
+          })}
+        </div>
+        <div style={{ display:"flex", gap:14, fontSize:11, color:C.textMuted, borderTop:`1px solid ${C.border}`, paddingTop:12 }}>
+          <span style={{ display:"flex", alignItems:"center", gap:5 }}><span style={{ width:10, height:10, background:C.success, borderRadius:2 }} /> 80%+ Excellent</span>
+          <span style={{ display:"flex", alignItems:"center", gap:5 }}><span style={{ width:10, height:10, background:C.warning, borderRadius:2 }} /> 60-79% Good</span>
+          <span style={{ display:"flex", alignItems:"center", gap:5 }}><span style={{ width:10, height:10, background:C.orange, borderRadius:2 }} /> 40-59% Average</span>
+          <span style={{ display:"flex", alignItems:"center", gap:5 }}><span style={{ width:10, height:10, background:C.danger, borderRadius:2 }} /> Below 40% Low</span>
+        </div>
+      </div>
+
+      {/* Per-Member Stats */}
+      <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:20, marginBottom:24 }}>
+        <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginBottom:16 }}>👤 Per-Member Performance (7 Days)</h3>
+        <div style={{ overflowX:"auto" }}>
+          <table style={{ width:"100%", borderCollapse:"collapse", fontSize:13, minWidth:600 }}>
+            <thead>
+              <tr style={{ background:C.bg }}>
+                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Member</th>
+                <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Present</th>
+                <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>On-Time</th>
+                <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Late</th>
+                <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Absent</th>
+                <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Tasks Done</th>
+                <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.members.map(m => {
+                let present = 0, ontime = 0, late = 0
+                days.forEach(d => {
+                  const a = (data.attendance[d] || {})[m.id]
+                  if (a) { present++; if (a.status === 'ontime') ontime++; else if (a.status === 'late') late++ }
+                })
+                const absent = 7 - present
+                const rate = Math.round((present/7)*100)
+                const rateColor = rate >= 80 ? C.success : rate >= 60 ? C.warning : rate >= 40 ? C.orange : C.danger
+                const memberTasksDone = data.tasks.filter(t => t.assigned_to === m.id && t.status === 'done').length
+                return (
+                  <tr key={m.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                    <td style={{ padding:"10px 12px" }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                        <div style={{ width:28, height:28, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
+                        <span style={{ color:C.text, fontWeight:500 }}>{m.name}</span>
+                      </div>
+                    </td>
+                    <td style={{ padding:"10px 12px", textAlign:"center", color:C.text }}>{present}</td>
+                    <td style={{ padding:"10px 12px", textAlign:"center", color:C.success, fontWeight:600 }}>{ontime}</td>
+                    <td style={{ padding:"10px 12px", textAlign:"center", color:C.warning, fontWeight:600 }}>{late}</td>
+                    <td style={{ padding:"10px 12px", textAlign:"center", color:C.danger, fontWeight:600 }}>{absent}</td>
+                    <td style={{ padding:"10px 12px", textAlign:"center", color:C.primary, fontWeight:600 }}>{memberTasksDone}</td>
+                    <td style={{ padding:"10px 12px", textAlign:"center" }}>
+                      <span style={{ background:rateColor+"22", color:rateColor, padding:"3px 10px", borderRadius:12, fontSize:11, fontWeight:600 }}>{rate}%</span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LeaderboardView({ data }) {
+  // Compute rankings for last 30 days
+  const days = []
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date()
+    d.setDate(d.getDate() - i)
+    days.push(new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year:'numeric', month:'2-digit', day:'2-digit' }).format(d))
+  }
+
+  const memberStats = data.members.map(m => {
+    let present = 0, ontime = 0, late = 0
+    days.forEach(d => {
+      const a = (data.attendance[d] || {})[m.id]
+      if (a) { present++; if (a.status === 'ontime') ontime++; else if (a.status === 'late') late++ }
+    })
+    const tasksDone = data.tasks.filter(t => t.assigned_to === m.id && t.status === 'done').length
+    const totalTasks = data.tasks.filter(t => t.assigned_to === m.id).length
+    const attendanceRate = Math.round((present/30)*100)
+    const ontimeRate = present > 0 ? Math.round((ontime/present)*100) : 0
+    // Overall score: 60% attendance + 40% ontime
+    const score = Math.round((attendanceRate * 0.6) + (ontimeRate * 0.4))
+    return { ...m, present, ontime, late, tasksDone, totalTasks, attendanceRate, ontimeRate, score }
+  })
+
+  const topByAttendance = [...memberStats].sort((a,b) => b.present - a.present || b.ontime - a.ontime).slice(0, 5)
+  const topByOntime = [...memberStats].filter(m => m.present > 0).sort((a,b) => b.ontimeRate - a.ontimeRate || b.present - a.present).slice(0, 5)
+  const topByTasks = [...memberStats].sort((a,b) => b.tasksDone - a.tasksDone).slice(0, 5)
+  const topOverall = [...memberStats].sort((a,b) => b.score - a.score).slice(0, 5)
+
+  const medals = ["🥇", "🥈", "🥉"]
+
+  const renderBoard = (title, list, valueKey, valueLabel, icon, color) => (
+    <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:20 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:14 }}>
+        <span style={{ fontSize:20 }}>{icon}</span>
+        <h3 style={{ color:C.text, fontSize:14, fontWeight:600 }}>{title}</h3>
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+        {list.length === 0 ? (
+          <p style={{ color:C.textMuted, fontSize:12, fontStyle:"italic" }}>Koi data nahi hai abhi.</p>
+        ) : list.map((m, i) => (
+          <div key={m.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 12px", background: i < 3 ? color+"11" : C.bg, borderRadius:8, border: i < 3 ? `1px solid ${color}44` : `1px solid ${C.border}` }}>
+            <span style={{ fontSize:18, width:26, textAlign:"center" }}>{medals[i] || `#${i+1}`}</span>
+            <div style={{ width:32, height:32, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <p style={{ color:C.text, fontSize:13, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{m.name}</p>
+              <p style={{ color:C.textMuted, fontSize:11 }}>{m.role}</p>
+            </div>
+            <div style={{ background:color, color:"#fff", padding:"4px 12px", borderRadius:12, fontSize:12, fontWeight:600 }}>{m[valueKey]}{valueLabel}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+
+  return (
+    <div>
+      <h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:6 }}>🏆 Leaderboard</h2>
+      <p style={{ color:C.textMuted, fontSize:13, marginBottom:24 }}>Last 30 days · Top 5 performers in each category</p>
+
+      {/* Overall Champion */}
+      {topOverall.length > 0 && topOverall[0].score > 0 && (
+        <div style={{ background:`linear-gradient(135deg, ${C.warning}, ${C.orange})`, borderRadius:16, padding:24, marginBottom:24, color:"#fff", display:"flex", alignItems:"center", gap:20 }}>
+          <div style={{ fontSize:56 }}>👑</div>
+          <div style={{ flex:1 }}>
+            <p style={{ fontSize:12, opacity:0.85, fontWeight:600, marginBottom:4 }}>MONTHLY CHAMPION</p>
+            <p style={{ fontSize:28, fontWeight:700 }}>{topOverall[0].name}</p>
+            <p style={{ fontSize:13, opacity:0.9, marginTop:2 }}>{topOverall[0].role} · Overall score: {topOverall[0].score}%</p>
+          </div>
+          <div style={{ width:70, height:70, borderRadius:"50%", background:"rgba(255,255,255,0.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, fontWeight:700, border:"3px solid rgba(255,255,255,0.3)" }}>{topOverall[0].avatar}</div>
+        </div>
+      )}
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))", gap:16 }}>
+        {renderBoard("Most Attendance", topByAttendance, "present", " days", "📅", C.success)}
+        {renderBoard("Best On-Time %", topByOntime, "ontimeRate", "%", "⚡", C.primary)}
+        {renderBoard("Most Tasks Completed", topByTasks, "tasksDone", " tasks", "✅", C.warning)}
+        {renderBoard("Top Overall Score", topOverall, "score", "%", "🌟", C.purple)}
       </div>
     </div>
   )
