@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, createContext, useContext } from 'react'
 import { supabase } from './supabase'
 
 // ============ TIMEZONE: PAKISTAN (Asia/Karachi) LOCKED ============
@@ -30,7 +30,8 @@ const to12 = (hhmm) => {
 const timeToMin = (t) => { const [h,m] = t.split(":").map(Number); return h*60+m }
 const isPastDate = (d) => new Date(d) < new Date(today())
 
-const C = {
+// ============ THEME SYSTEM ============
+const lightC = {
   bg:"#f7f8fa", surface:"#ffffff", border:"#e5e7eb",
   text:"#111827", textMuted:"#6b7280", textLight:"#9ca3af",
   primary:"#4f46e5", primaryLight:"#eef2ff",
@@ -39,7 +40,24 @@ const C = {
   danger:"#ef4444", dangerLight:"#fee2e2",
   purple:"#8b5cf6", purpleLight:"#ede9fe",
   orange:"#f97316", orangeLight:"#ffedd5",
+  sidebar:"#ffffff", sidebarBorder:"#e5e7eb", sidebarHover:"#f3f4f6",
 }
+const darkC = {
+  bg:"#0f0f1a", surface:"#1a1a2e", border:"#2a2a4a",
+  text:"#e5e7eb", textMuted:"#9ca3af", textLight:"#6b7280",
+  primary:"#818cf8", primaryLight:"#2a2a4a",
+  success:"#34d399", successLight:"#064e3b",
+  warning:"#fbbf24", warningLight:"#78350f",
+  danger:"#f87171", dangerLight:"#7f1d1d",
+  purple:"#a78bfa", purpleLight:"#2a2a4a",
+  orange:"#fb923c", orangeLight:"#7c2d12",
+  sidebar:"#16162a", sidebarBorder:"#2a2a4a", sidebarHover:"#22223a",
+}
+const ThemeCtx = createContext()
+const useC = () => useContext(ThemeCtx).C
+const useTheme = () => useContext(ThemeCtx)
+// fallback C for module-level (login screen etc)
+const C = lightC
 
 const avatarColors = ["#6366f1","#10b981","#f59e0b","#ec4899","#8b5cf6","#ef4444","#14b8a6","#f97316"]
 const getColor = (id) => avatarColors[Math.abs(String(id).split("").reduce((a,c)=>a+c.charCodeAt(0),0)) % avatarColors.length]
@@ -55,6 +73,64 @@ const LINK_TYPES = [
   { value:"website", label:"🌐 Website" },
   { value:"other", label:"🔗 Other" },
 ]
+
+
+// ============ THEME PROVIDER ============
+function ThemeProvider({ children }) {
+  const [isDark, setIsDark] = useState(() => localStorage.getItem("teamhub-theme") === "dark")
+  const toggle = () => setIsDark(d => { localStorage.setItem("teamhub-theme", !d ? "dark" : "light"); return !d })
+  const C = isDark ? darkC : lightC
+  return <ThemeCtx.Provider value={{ C, isDark, toggle }}>{children}</ThemeCtx.Provider>
+}
+
+// ============ SIDEBAR LAYOUT ============
+function SidebarLayout({ tabs, activeTab, setTab, user, roleBadge, roleColor, onLogout, children }) {
+  const { C, isDark, toggle } = useTheme()
+  const sections = []; let cur = { label:null, items:[] }
+  tabs.forEach(t => { if(t.section){ if(cur.items.length) sections.push(cur); cur={label:t.section,items:[]}; } cur.items.push(t) })
+  if(cur.items.length) sections.push(cur)
+  return (
+    <div style={{ minHeight:"100vh", display:"flex", background:C.bg }}>
+      <div style={{ width:220, background:C.sidebar, borderRight:`1px solid ${C.sidebarBorder}`, display:"flex", flexDirection:"column", flexShrink:0 }}>
+        <div style={{ padding:"16px", display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+          <div style={{ width:28, height:28, borderRadius:8, background:roleColor||C.primary, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, color:"#fff" }}>⚡</div>
+          <span style={{ color:C.text, fontWeight:500, fontSize:15 }}>TeamHub</span>
+          <span style={{ background:C.primaryLight, color:C.primary, fontSize:10, padding:"2px 8px", borderRadius:12, fontWeight:600, marginLeft:"auto" }}>{roleBadge}</span>
+        </div>
+        <div style={{ flex:1, overflowY:"auto", padding:"0 8px" }}>
+          {sections.map((sec,si) => (
+            <div key={si}>
+              {si > 0 && <div style={{ height:1, background:C.sidebarBorder, margin:"8px 12px" }} />}
+              {sec.label && <div style={{ fontSize:10, fontWeight:500, textTransform:"uppercase", letterSpacing:0.5, padding:"8px 12px 4px", color:C.textLight }}>{sec.label}</div>}
+              {sec.items.filter(t=>!t.section).map(t => (
+                <button key={t.id} onClick={()=>setTab(t.id)}
+                  style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:8, border:"none", background:activeTab===t.id?(isDark?"#2a2a4a":C.primaryLight):"transparent", color:activeTab===t.id?C.primary:C.textMuted, cursor:"pointer", fontSize:13, width:"100%", textAlign:"left", fontWeight:activeTab===t.id?500:400, marginBottom:2 }}>
+                  <span style={{ fontSize:16 }}>{t.icon}</span> {t.label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+        <div style={{ padding:8, borderTop:`1px solid ${C.sidebarBorder}` }}>
+          <button onClick={toggle} style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, width:"100%", padding:"8px", borderRadius:8, border:`1px solid ${C.sidebarBorder}`, background:"transparent", color:C.textMuted, fontSize:12, cursor:"pointer", marginBottom:8 }}>
+            {isDark ? "☀ Light mode" : "🌙 Dark mode"}
+          </button>
+          <div style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 10px" }}>
+            <div style={{ width:28, height:28, borderRadius:"50%", background:roleColor||C.primary, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, color:"#fff", fontWeight:500 }}>{user.avatar}</div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ color:C.text, fontSize:13, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{user.name}</div>
+              <div style={{ color:C.textLight, fontSize:11 }}>{roleBadge}</div>
+            </div>
+          </div>
+          <button onClick={onLogout} style={{ display:"flex", alignItems:"center", justifyContent:"center", width:"100%", padding:"7px", borderRadius:8, border:`1px solid ${C.sidebarBorder}`, background:"transparent", color:C.danger, fontSize:12, cursor:"pointer", marginTop:6 }}>
+            Logout
+          </button>
+        </div>
+      </div>
+      <div style={{ flex:1, overflowY:"auto", padding:24 }}>{children}</div>
+    </div>
+  )
+}
 
 export default function App() {
   const [user, setUser] = useState(null)
@@ -98,12 +174,13 @@ export default function App() {
 
   const onLogout = () => { localStorage.removeItem("teamhub-user"); setUser(null) }
 
-  if (loading) return <Loader />
-  if (!user) return <LoginScreen form={loginForm} setForm={setLoginForm} onLogin={handleLogin} error={loginError} />
-  if (user.isAdmin) return <AdminDashboard user={user} onLogout={onLogout} />
-  if (user.isManager) return <ManagerDashboard user={user} onLogout={onLogout} />
-  if (user.isTeamLead) return <TeamLeadDashboard user={user} onLogout={onLogout} />
-  return <MemberDashboard user={user} onLogout={onLogout} />
+  if (loading) return <ThemeProvider><Loader /></ThemeProvider>
+  if (!user) return <ThemeProvider><LoginScreen form={loginForm} setForm={setLoginForm} onLogin={handleLogin} error={loginError} /></ThemeProvider>
+  const content = user.isAdmin ? <AdminDashboard user={user} onLogout={onLogout} />
+  : user.isManager ? <ManagerDashboard user={user} onLogout={onLogout} />
+  : user.isTeamLead ? <TeamLeadDashboard user={user} onLogout={onLogout} />
+  : <MemberDashboard user={user} onLogout={onLogout} />
+  return <ThemeProvider>{content}</ThemeProvider>
 }
 
 function Loader() {
@@ -148,6 +225,8 @@ function LoginScreen({ form, setForm, onLogin, error }) {
 
 // ============ SHARED: TikTok Sheet ============
 function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountType }) {
+  const C = useC()
+ {
   // Show partnership only when admin toggles it on (from Overview)
   const [showTypeCol, setShowTypeCol] = useState(() => showAccountType && localStorage.getItem('teamhub-show-partnership') === 'true')
   useEffect(() => {
@@ -484,6 +563,8 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
 
 // ============ SHARED: Team Links ============
 function TeamLinks({ teamId, canEdit }) {
+  const C = useC()
+ {
   const [links, setLinks] = useState([])
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState({ name:"", url:"", link_type:"sheet", notes:"" })
@@ -593,6 +674,8 @@ function TeamLinks({ teamId, canEdit }) {
 
 // ============ SHARED: Ideas Board ============
 function IdeasBoard({ user, table, title, emoji }) {
+  const C = useC()
+ {
   const [ideas, setIdeas] = useState([])
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState({ name:"", description:"", link:"" })
@@ -692,6 +775,8 @@ function IdeasBoard({ user, table, title, emoji }) {
 
 // ============ SHARED: Member Form Fields (for both admin + team lead create/edit) ============
 function MemberFormFields({ form, setForm, showTeam=false, showCgp=false, teamGroups=[], cgpGroups=[] }) {
+  const C = useC()
+ {
   return (
     <>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
@@ -775,6 +860,8 @@ const emptyMemberForm = () => ({
 
 // ============ SHARED: Gmail Credentials Vault ============
 function GmailAccounts({ teamId, canEdit }) {
+  const C = useC()
+ {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [showPw, setShowPw] = useState({})
@@ -905,6 +992,8 @@ function GmailAccounts({ teamId, canEdit }) {
 
 // ============ SHARED: Group Members Management ============
 function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage }) {
+  const C = useC()
+ {
   const isCGP = groupMode === 'cgp'
   const [addMode, setAddMode] = useState(null)
   const [existingSelect, setExistingSelect] = useState("")
@@ -1049,6 +1138,8 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
 
 // ============ SHARED: Groups Section ============
 function GroupsSection({ data, refresh, groupType, sectionLabel }) {
+  const C = useC()
+ {
   const [form, setForm] = useState({ name:"", description:"", team_lead_id:"" })
   const [adding, setAdding] = useState(false)
   const [selectedTeam, setSelectedTeam] = useState(null)
@@ -1198,6 +1289,8 @@ function GroupsSection({ data, refresh, groupType, sectionLabel }) {
 
 // ============ ADMIN DASHBOARD ============
 function ManagerDashboard({ user, onLogout }) {
+  const C = useC()
+ {
   const [tab, setTab] = useState("members")
   const [data, setData] = useState({ members:[], tasks:[], attendance:{}, reports:{}, stats:{}, reportComments:{}, teams:[], accounts:[] })
   const [loading, setLoading] = useState(true)
@@ -1232,28 +1325,11 @@ function ManagerDashboard({ user, onLogout }) {
     { id:"leaderboard", label:"Leaderboard", icon:"🏆" },
   ]
 
-  if (loading) return <Loader />
+  if (loading) return <ThemeProvider><Loader /></ThemeProvider>
 
   return (
-    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column" }}>
-      <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 24px", display:"flex", alignItems:"center", justifyContent:"space-between", height:60 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:32, height:32, background:C.purple, borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, color:"#fff" }}>👔</div>
-          <span style={{ color:C.text, fontWeight:700, fontSize:17 }}>TeamHub</span>
-          <span style={{ background:C.purpleLight, color:C.purple, fontSize:11, padding:"3px 10px", borderRadius:20, fontWeight:600 }}>Manager</span>
-          <span style={{ color:C.textMuted, fontSize:13, marginLeft:8 }}>{user.name}</span>
-        </div>
-        <button onClick={onLogout} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, fontSize:13, padding:"7px 16px", borderRadius:8, cursor:"pointer" }}>Logout</button>
-      </div>
-      <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 24px", display:"flex", gap:4, overflowX:"auto" }}>
-        {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            style={{ background:"transparent", border:"none", borderBottom: tab===t.id ? `2px solid ${C.purple}` : "2px solid transparent", color: tab===t.id ? C.purple : C.textMuted, padding:"14px 14px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap", fontWeight: tab===t.id?600:500 }}>
-            {t.icon} {t.label}
-          </button>
-        ))}
-      </div>
-      <div style={{ flex:1, padding:24, overflowY:"auto" }}>
+    <SidebarLayout tabs={tabs} activeTab={tab} setTab={setTab} user={user} roleBadge="Manager" roleColor={C.purple} onLogout={onLogout}>
+      <div>
         {tab==="members" && <ManagerMembers data={data} refresh={refresh} />}
         {tab==="tasks" && <AdminTasks data={data} refresh={refresh} />}
         {tab==="attendance" && <AdminAttendance data={data} refresh={refresh} />}
@@ -1261,11 +1337,13 @@ function ManagerDashboard({ user, onLogout }) {
         {tab==="analytics" && <AnalyticsDashboard data={data} />}
         {tab==="leaderboard" && <LeaderboardView data={data} />}
       </div>
-    </div>
+    </SidebarLayout>
   )
 }
 
 function ManagerMembers({ data, refresh }) {
+  const C = useC()
+ {
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState(null)
 
@@ -1330,6 +1408,8 @@ function ManagerMembers({ data, refresh }) {
 }
 
 function AdminDashboard({ user, onLogout }) {
+  const C = useC()
+ {
   const [tab, setTab] = useState("overview")
   const [data, setData] = useState({ members:[], tasks:[], attendance:{}, reports:{}, stats:{}, reportComments:{}, teams:[], accounts:[] })
   const [loading, setLoading] = useState(true)
@@ -1359,37 +1439,24 @@ function AdminDashboard({ user, onLogout }) {
     { id:"overview", label:"Overview", icon:"📊" },
     { id:"analytics", label:"Analytics", icon:"📈" },
     { id:"leaderboard", label:"Leaderboard", icon:"🏆" },
+    { section:"Manage" },
     { id:"teams", label:"Teams", icon:"👥" },
     { id:"cgp", label:"CGP", icon:"🚀" },
     { id:"members", label:"Members", icon:"👤" },
     { id:"tasks", label:"Tasks", icon:"✅" },
+    { section:"Activity" },
     { id:"attendance", label:"Attendance", icon:"🕐" },
     { id:"reports", label:"Reports", icon:"📋" },
+    { section:"Ideas" },
     { id:"niche", label:"Niche Ideas", icon:"💡" },
     { id:"voiceover", label:"Voiceover Ideas", icon:"🎙️" },
   ]
 
-  if (loading) return <Loader />
+  if (loading) return <ThemeProvider><Loader /></ThemeProvider>
 
   return (
-    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column" }}>
-      <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 24px", display:"flex", alignItems:"center", justifyContent:"space-between", height:60 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:32, height:32, background:C.primary, borderRadius:8, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, color:"#fff" }}>⚡</div>
-          <span style={{ color:C.text, fontWeight:700, fontSize:17 }}>TeamHub</span>
-          <span style={{ background:C.primaryLight, color:C.primary, fontSize:11, padding:"3px 10px", borderRadius:20, fontWeight:600 }}>Super Admin</span>
-        </div>
-        <button onClick={onLogout} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, fontSize:13, padding:"7px 16px", borderRadius:8, cursor:"pointer" }}>Logout</button>
-      </div>
-      <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 24px", display:"flex", gap:4, overflowX:"auto" }}>
-        {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            style={{ background:"transparent", border:"none", borderBottom: tab===t.id ? `2px solid ${C.primary}` : "2px solid transparent", color: tab===t.id ? C.primary : C.textMuted, padding:"14px 14px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap", fontWeight: tab===t.id?600:500 }}>
-            {t.icon} {t.label}
-          </button>
-        ))}
-      </div>
-      <div style={{ flex:1, padding:24, overflowY:"auto" }}>
+    <SidebarLayout tabs={tabs} activeTab={tab} setTab={setTab} user={user} roleBadge="Super Admin" onLogout={onLogout}>
+      <div>
         {tab==="overview" && <AdminOverview data={data} />}
         {tab==="analytics" && <AnalyticsDashboard data={data} />}
         {tab==="leaderboard" && <LeaderboardView data={data} />}
@@ -1402,11 +1469,12 @@ function AdminDashboard({ user, onLogout }) {
         {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas Board</h2><IdeasBoard user={user} table="niche_ideas" title="Niche Ideas Board" emoji="💡" /></div>}
         {tab==="voiceover" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🎙️ Voiceover Ideas Board</h2><IdeasBoard user={user} table="voiceover_ideas" title="Voiceover Ideas Board" emoji="🎙️" /></div>}
       </div>
-    </div>
+    </SidebarLayout>
   )
 }
 
 function AbsenteesWarning({ data }) {
+  const C = useC()
   const td = today()
   const [threshold, setThreshold] = useState(() => parseInt(localStorage.getItem('teamhub-absent-threshold')||'3'))
   const [collapsed, setCollapsed] = useState(false)
@@ -1493,6 +1561,8 @@ function AbsenteesWarning({ data }) {
 }
 
 function AnalyticsDashboard({ data }) {
+  const C = useC()
+ {
   const td = today()
   // Compute last 7 days
   const days = []
@@ -1650,6 +1720,8 @@ function AnalyticsDashboard({ data }) {
 }
 
 function LeaderboardView({ data }) {
+  const C = useC()
+ {
   // Compute rankings for last 30 days
   const days = []
   for (let i = 29; i >= 0; i--) {
@@ -1733,6 +1805,8 @@ function LeaderboardView({ data }) {
 }
 
 function AdminOverview({ data }) {
+  const C = useC()
+ {
   const td = today()
   const att = data.attendance[td] || {}
   const ontime = Object.values(att).filter(a=>a.status==="ontime").length
@@ -1840,6 +1914,8 @@ function AdminOverview({ data }) {
 }
 
 function AdminMembers({ data, refresh }) {
+  const C = useC()
+ {
   const [form, setForm] = useState(emptyMemberForm())
   const [adding, setAdding] = useState(false)
   const [credShow, setCredShow] = useState(null)
@@ -1946,6 +2022,8 @@ function AdminMembers({ data, refresh }) {
 }
 
 function AdminTasks({ data, refresh }) {
+  const C = useC()
+ {
   const [form, setForm] = useState({ title:"", assigned_to:"", deadline:"", priority:"medium", category:"Development" })
   const [adding, setAdding] = useState(false)
   const addTask = async () => {
@@ -2005,6 +2083,8 @@ function AdminTasks({ data, refresh }) {
 }
 
 function AdminAttendance({ data, refresh }) {
+  const C = useC()
+ {
   const [viewDate, setViewDate] = useState(today())
   const att = data.attendance[viewDate] || {}
   const reset = async (id) => {
@@ -2043,6 +2123,8 @@ function AdminAttendance({ data, refresh }) {
 }
 
 function AdminReports({ data, user, refresh }) {
+  const C = useC()
+ {
   const [viewDate, setViewDate] = useState(today())
   const reports = data.reports[viewDate] || {}
   const [commentText, setCommentText] = useState({})
@@ -2106,6 +2188,8 @@ function AdminReports({ data, user, refresh }) {
 
 // ============ SHIFT + JOB CARD (shown on member/team-lead home) ============
 function ShiftJobCard({ user }) {
+  const C = useC()
+ {
   return (
     <div style={{ background:`linear-gradient(135deg, ${C.primary}, ${C.purple})`, borderRadius:14, padding:20, marginBottom:20, color:"#fff" }}>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
@@ -2125,6 +2209,8 @@ function ShiftJobCard({ user }) {
 
 // ============ TEAM LEAD DASHBOARD ============
 function TeamLeadDashboard({ user, onLogout }) {
+  const C = useC()
+ {
   const [tab, setTab] = useState("home")
   const [team, setTeam] = useState(null)
   const [cgp, setCgp] = useState(null)
@@ -2155,7 +2241,7 @@ function TeamLeadDashboard({ user, onLogout }) {
 
   useEffect(() => { refresh() }, [refresh])
 
-  if (loading) return <Loader />
+  if (loading) return <ThemeProvider><Loader /></ThemeProvider>
 
   if (!team && !cgp) return (
     <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
@@ -2187,26 +2273,8 @@ function TeamLeadDashboard({ user, onLogout }) {
   tabs.push({ id:"report", label:"Report", icon:"📋" })
 
   return (
-    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column" }}>
-      <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 20px", display:"flex", alignItems:"center", justifyContent:"space-between", height:60 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:32, height:32, background:getColor(user.id), borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", fontWeight:600 }}>{user.avatar}</div>
-          <div>
-            <p style={{ color:C.text, fontSize:14, fontWeight:600 }}>{user.name} 👑</p>
-            <p style={{ color:C.textMuted, fontSize:11 }}>Lead · {primary?.name}</p>
-          </div>
-        </div>
-        <button onClick={onLogout} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, fontSize:13, padding:"7px 16px", borderRadius:8, cursor:"pointer" }}>Logout</button>
-      </div>
-      <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 20px", display:"flex", gap:4, overflowX:"auto" }}>
-        {tabs.map(t => (
-          <button key={t.id} onClick={()=>setTab(t.id)}
-            style={{ background:"transparent", border:"none", borderBottom:tab===t.id?`2px solid ${C.primary}`:"2px solid transparent", color:tab===t.id?C.primary:C.textMuted, padding:"14px 12px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap", fontWeight:tab===t.id?600:500 }}>
-            {t.icon} {t.label}
-          </button>
-        ))}
-      </div>
-      <div style={{ flex:1, padding:20, overflowY:"auto" }}>
+    <SidebarLayout tabs={tabs} activeTab={tab} setTab={setTab} user={user} roleBadge="Team Lead" roleColor={getColor(user.id)} onLogout={onLogout}>
+      <div>
         {tab==="home" && (
           <TeamLeadHome user={user} team={team} cgp={cgp} members={members} myData={myData} refresh={refresh} />
         )}
@@ -2223,12 +2291,14 @@ function TeamLeadDashboard({ user, onLogout }) {
         {tab==="tasks" && <MemberTasks data={myData} refresh={refresh} />}
         {tab==="report" && <MemberReport data={myData} user={user} refresh={refresh} />}
       </div>
-    </div>
+    </SidebarLayout>
   )
 }
 
 // ============ MEMBER DASHBOARD ============
 function MemberDashboard({ user, onLogout }) {
+  const C = useC()
+ {
   const [tab, setTab] = useState("home")
   const [data, setData] = useState({ tasks:[], attendance:{}, reports:{}, stats:{lateCount:0,strikes:0}, reportComments:{}, team:null, teamMembers:[], cgp:null, cgpMembers:[] })
   const [loading, setLoading] = useState(true)
@@ -2267,7 +2337,7 @@ function MemberDashboard({ user, onLogout }) {
 
   useEffect(() => { refresh() }, [refresh])
 
-  if (loading) return <Loader />
+  if (loading) return <ThemeProvider><Loader /></ThemeProvider>
 
   const cgps = data.cgps || []
 
@@ -2282,29 +2352,7 @@ function MemberDashboard({ user, onLogout }) {
   tabs.push({ id:"voiceover", label:"Voiceover Ideas", icon:"🎙️" })
 
   return (
-    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", flexDirection:"column" }}>
-      <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 20px", display:"flex", alignItems:"center", justifyContent:"space-between", height:60 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-          <div style={{ width:32, height:32, background:getColor(user.id), borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", fontWeight:600 }}>{user.avatar}</div>
-          <div>
-            <p style={{ color:C.text, fontSize:14, fontWeight:600 }}>{user.name}</p>
-            <p style={{ color:C.textMuted, fontSize:11 }}>
-              {user.role}
-              {data.team && ` · 👥 ${data.team.name}`}
-              {(data.cgps||[]).map(c => ` · 🚀 ${c.name}`).join('')}
-            </p>
-          </div>
-        </div>
-        <button onClick={onLogout} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, fontSize:13, padding:"7px 16px", borderRadius:8, cursor:"pointer" }}>Logout</button>
-      </div>
-      <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 20px", display:"flex", gap:4, overflowX:"auto" }}>
-        {tabs.map(t => (
-          <button key={t.id} onClick={()=>setTab(t.id)}
-            style={{ background:"transparent", border:"none", borderBottom:tab===t.id?`2px solid ${C.primary}`:"2px solid transparent", color:tab===t.id?C.primary:C.textMuted, padding:"14px 12px", fontSize:13, cursor:"pointer", whiteSpace:"nowrap", fontWeight:tab===t.id?600:500 }}>
-            {t.icon} {t.label}
-          </button>
-        ))}
-      </div>
+    <SidebarLayout tabs={tabs} activeTab={tab} setTab={setTab} user={user} roleBadge={user.role} roleColor={getColor(user.id)} onLogout={onLogout}>
       <div style={{ flex:1, padding:20, overflowY:"auto" }}>
         {tab==="home" && <MemberHome data={data} user={user} refresh={refresh} />}
         {tab==="tasks" && <MemberTasks data={data} refresh={refresh} />}
@@ -2314,11 +2362,12 @@ function MemberDashboard({ user, onLogout }) {
         {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas</h2><IdeasBoard user={user} table="niche_ideas" title="Niche Ideas Board" emoji="💡" /></div>}
         {tab==="voiceover" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🎙️ Voiceover Ideas</h2><IdeasBoard user={user} table="voiceover_ideas" title="Voiceover Ideas Board" emoji="🎙️" /></div>}
       </div>
-    </div>
+    </SidebarLayout>
   )
 }
 
 function MemberHome({ data, user, refresh }) {
+  const C = useC()
   const td = today()
   const att = data.attendance[td]
   const pending = data.tasks.filter(t=>t.status==="pending").length
@@ -2419,6 +2468,8 @@ function MemberHome({ data, user, refresh }) {
 }
 
 function TeamLeadHome({ user, team, cgp, members, myData, refresh }) {
+  const C = useC()
+ {
   const td = today()
   const att = myData.attendance[td]
   const [now, setNow] = useState(nowHHMM())
@@ -2522,6 +2573,8 @@ function TeamLeadHome({ user, team, cgp, members, myData, refresh }) {
 }
 
 function MemberCheckin({ data, user, refresh }) {
+  const C = useC()
+ {
   const [now, setNow] = useState(nowHHMM())
   const [lateReason, setLateReason] = useState("")
   const td = today()
@@ -2603,6 +2656,8 @@ function MemberCheckin({ data, user, refresh }) {
 }
 
 function MemberTasks({ data, refresh }) {
+  const C = useC()
+ {
   const pColor = { high:C.danger, medium:C.warning, low:C.success }
   const pBg = { high:C.dangerLight, medium:C.warningLight, low:C.successLight }
   const upd = async (id, status) => { await supabase.from('tasks').update({ status, progress:status==="done"?100:undefined }).eq('id', id); refresh() }
@@ -2631,6 +2686,8 @@ function MemberTasks({ data, refresh }) {
 }
 
 function MemberReport({ data, user, refresh }) {
+  const C = useC()
+ {
   const td = today()
   const existing = data.reports[td]
   const [form, setForm] = useState(existing || { tasksCompleted:"", hoursWorked:"", blockers:"", notes:"" })
@@ -2679,6 +2736,8 @@ function MemberReport({ data, user, refresh }) {
 }
 
 function MemberGroupView({ group, groupMembers, groupMode, user }) {
+  const C = useC()
+ {
   if (!group) return <p style={{ color:C.textMuted, fontSize:14 }}>Aap kisi {groupMode==='cgp'?'CGP':'team'} mein nahi hain.</p>
   const emoji = groupMode==='cgp' ? '🚀' : '👥'
   return (
