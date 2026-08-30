@@ -63,7 +63,7 @@ const avatarColors = ["#6366f1","#10b981","#f59e0b","#ec4899","#8b5cf6","#ef4444
 const getColor = (id) => avatarColors[Math.abs(String(id).split("").reduce((a,c)=>a+c.charCodeAt(0),0)) % avatarColors.length]
 const genPassword = () => Math.random().toString(36).slice(-6)
 
-const CATEGORY_COLORS = { "Gold":"#f59e0b", "Silver":"#9ca3af", "Experimental":"#8b5cf6" }
+const CATEGORY_COLORS = { "Gold":"#f59e0b", "Silver":"#9ca3af", "Experimental":"#8b5cf6", "Fix":"#f97316", "Drop":"#ef4444" }
 const catColor = (name) => CATEGORY_COLORS[name] || "#4f46e5"
 
 const LINK_TYPES = [
@@ -226,7 +226,6 @@ function LoginScreen({ form, setForm, onLogin, error }) {
 // ============ SHARED: TikTok Sheet ============
 function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountType }) {
   const C = useC()
- {
   // Show partnership only when admin toggles it on (from Overview)
   const [showTypeCol, setShowTypeCol] = useState(() => showAccountType && localStorage.getItem('teamhub-show-partnership') === 'true')
   useEffect(() => {
@@ -244,7 +243,7 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
   const [groupMembers, setGroupMembers] = useState([])
   const [comments, setComments] = useState({}) // account_id -> array of comments
   const [loading, setLoading] = useState(true)
-  const [form, setForm] = useState({ account_name:"", niche:"", tiktok_link:"", video_source:"", competitor_link:"", category:"", assigned_to:"", account_type:"own" })
+  const [form, setForm] = useState({ account_name:"", niche:"", tiktok_link:"", video_source:"", competitor_link:"", category:"", assigned_to:"", account_type:"own", followers:"", avg_views:"", last_upload:"", monetized:"No", immediate_action:"", who_handles:"", editor:"", targets:"" })
   const [adding, setAdding] = useState(false)
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState(null)
@@ -300,7 +299,7 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
   const addAccount = async () => {
     if (!form.account_name.trim()) { alert("Account name zaroori hai!"); return }
     await supabase.from('tiktok_accounts').insert({ id:"acc"+Date.now(), team_id:teamId, ...form, status:'not_yet', status_date:null })
-    setForm({ account_name:"", niche:"", tiktok_link:"", video_source:"", competitor_link:"", category:"", assigned_to:"", account_type:"own" })
+    setForm({ account_name:"", niche:"", tiktok_link:"", video_source:"", competitor_link:"", category:"", assigned_to:"", account_type:"own", followers:"", avg_views:"", last_upload:"", monetized:"No", immediate_action:"", who_handles:"", editor:"", targets:"" })
     setAdding(false)
     load()
   }
@@ -393,17 +392,46 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
       )}
       {adding && canEdit && (
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:16, marginBottom:14 }}>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
-            <input value={form.account_name} onChange={e=>setForm(f=>({...f,account_name:e.target.value}))} placeholder="Account Name *" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+          <p style={{ color:C.primary, fontSize:12, fontWeight:500, marginBottom:8 }}>Basic Info</p>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:12 }}>
+            <input value={form.account_name} onChange={e=>setForm(f=>({...f,account_name:e.target.value}))} placeholder="Page Name *" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
             <input value={form.niche} onChange={e=>setForm(f=>({...f,niche:e.target.value}))} placeholder="Niche" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
             <input value={form.tiktok_link} onChange={e=>setForm(f=>({...f,tiktok_link:e.target.value}))} placeholder="TikTok Link" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
-            <input value={form.video_source} onChange={e=>setForm(f=>({...f,video_source:e.target.value}))} placeholder="Video Source" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
-            <input value={form.competitor_link} onChange={e=>setForm(f=>({...f,competitor_link:e.target.value}))} placeholder="Competitor Link" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
-            {catSelect(form.category, (v)=>setForm(f=>({...f,category:v})))}
-            <select value={form.assigned_to} onChange={e=>setForm(f=>({...f,assigned_to:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
-              <option value="">👤 Unassigned</option>
-              {groupMembers.map(m => <option key={m.id} value={m.id}>👤 {m.label}</option>)}
+          </div>
+          <p style={{ color:C.primary, fontSize:12, fontWeight:500, marginBottom:8 }}>Performance</p>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:12 }}>
+            <input value={form.followers} onChange={e=>setForm(f=>({...f,followers:e.target.value}))} placeholder="Followers" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+            <input value={form.avg_views} onChange={e=>setForm(f=>({...f,avg_views:e.target.value}))} placeholder="Avg Views" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+            <input value={form.last_upload} onChange={e=>setForm(f=>({...f,last_upload:e.target.value}))} placeholder="Last Upload" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+            <select value={form.monetized} onChange={e=>setForm(f=>({...f,monetized:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
+              <option value="No">Monetized: No</option>
+              <option value="Yes">Monetized: Yes</option>
             </select>
+          </div>
+          <p style={{ color:C.primary, fontSize:12, fontWeight:500, marginBottom:8 }}>Category & Action</p>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:12 }}>
+            {catSelect(form.category, (v)=>setForm(f=>({...f,category:v})))}
+            <input value={form.immediate_action} onChange={e=>setForm(f=>({...f,immediate_action:e.target.value}))} placeholder="Immediate Action" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+            <input value={form.targets} onChange={e=>setForm(f=>({...f,targets:e.target.value}))} placeholder="Targets" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+          </div>
+          <p style={{ color:C.primary, fontSize:12, fontWeight:500, marginBottom:8 }}>People & Sources</p>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:12 }}>
+            <select value={form.who_handles} onChange={e=>setForm(f=>({...f,who_handles:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
+              <option value="">Who Handles</option>
+              {groupMembers.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+            <select value={form.assigned_to} onChange={e=>setForm(f=>({...f,assigned_to:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
+              <option value="">Who Manages</option>
+              {groupMembers.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+            <select value={form.editor} onChange={e=>setForm(f=>({...f,editor:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
+              <option value="">Editor</option>
+              {groupMembers.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+            <input value={form.video_source} onChange={e=>setForm(f=>({...f,video_source:e.target.value}))} placeholder="Video Source" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
+            <input value={form.competitor_link} onChange={e=>setForm(f=>({...f,competitor_link:e.target.value}))} placeholder="Competitor Link" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }} />
             {showTypeCol && (
               <select value={form.account_type} onChange={e=>setForm(f=>({...f,account_type:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
                 <option value="own">🏢 Own</option>
@@ -429,18 +457,23 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
             <thead>
               <tr style={{ background:C.bg }}>
                 {canEdit && <th style={{ padding:"10px 6px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, width:32 }} title="Drag to reorder"></th>}
-                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>#</th>
-                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Account</th>
-                {!filterByUserId && <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Assigned To</th>}
-                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Category</th>
-                {showTypeCol && <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Type</th>}
-                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Niche</th>
-                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>TikTok</th>
-                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Source</th>
-                <th style={{ padding:"10px 12px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Competitor</th>
-                <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Status</th>
-                <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Notes</th>
-                {canEdit && <th style={{ padding:"10px 12px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Actions</th>}
+                <th style={{ padding:"10px 8px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>#</th>
+                <th style={{ padding:"10px 8px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Page Name</th>
+                <th style={{ padding:"10px 8px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Niche</th>
+                <th style={{ padding:"10px 8px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Followers</th>
+                <th style={{ padding:"10px 8px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Avg Views</th>
+                <th style={{ padding:"10px 8px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Last Upload</th>
+                <th style={{ padding:"10px 8px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Monetized</th>
+                <th style={{ padding:"10px 8px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Category</th>
+                {showTypeCol && <th style={{ padding:"10px 8px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Type</th>}
+                <th style={{ padding:"10px 8px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Action</th>
+                <th style={{ padding:"10px 8px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Handles</th>
+                {!filterByUserId && <th style={{ padding:"10px 8px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Manages</th>}
+                <th style={{ padding:"10px 8px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Editor</th>
+                <th style={{ padding:"10px 8px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Targets</th>
+                <th style={{ padding:"10px 8px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Status</th>
+                <th style={{ padding:"10px 8px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Notes</th>
+                {canEdit && <th style={{ padding:"10px 8px", textAlign:"center", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}` }}>Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -448,83 +481,81 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
                 const accComments = comments[acc.id] || []
                 const rows = []
                 if (editId === acc.id) {
+                  const eS = { width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"5px 6px", fontSize:12, boxSizing:"border-box" }
                   rows.push(
                 <tr key={acc.id} style={{ borderBottom:`1px solid ${C.border}`, background:C.primaryLight }}>
-                  {canEdit && <td style={{ padding:"8px", textAlign:"center", color:C.textLight }}>≡</td>}
-                  <td style={{ padding:"8px 12px" }}>{idx+1}</td>
-                  <td style={{ padding:"6px 8px" }}><input value={editForm.account_name} onChange={e=>setEditForm(f=>({...f,account_name:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
-                  {!filterByUserId && <td style={{ padding:"6px 8px" }}>
-                    <select value={editForm.assigned_to||""} onChange={e=>setEditForm(f=>({...f,assigned_to:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }}>
-                      <option value="">👤 Unassigned</option>
-                      {groupMembers.map(m => <option key={m.id} value={m.id}>👤 {m.label}</option>)}
-                    </select>
-                  </td>}
-                  <td style={{ padding:"6px 8px" }}>{catSelect(editForm.category, (v)=>setEditForm(f=>({...f,category:v})))}</td>
-                  {showTypeCol && (
-                    <td style={{ padding:"6px 8px" }}>
-                      <select value={editForm.account_type||"own"} onChange={e=>setEditForm(f=>({...f,account_type:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }}>
-                        <option value="own">🏢 Own</option>
-                        <option value="partnership">🤝 Partnership</option>
-                      </select>
-                    </td>
-                  )}
-                  <td style={{ padding:"6px 8px" }}><input value={editForm.niche} onChange={e=>setEditForm(f=>({...f,niche:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
-                  <td style={{ padding:"6px 8px" }}><input value={editForm.tiktok_link} onChange={e=>setEditForm(f=>({...f,tiktok_link:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
-                  <td style={{ padding:"6px 8px" }}><input value={editForm.video_source} onChange={e=>setEditForm(f=>({...f,video_source:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
-                  <td style={{ padding:"6px 8px" }}><input value={editForm.competitor_link||""} onChange={e=>setEditForm(f=>({...f,competitor_link:e.target.value}))} style={{ width:"100%", border:`1px solid ${C.primary}`, borderRadius:4, padding:"6px 8px", fontSize:13, boxSizing:"border-box" }} /></td>
-                  <td style={{ padding:"8px", textAlign:"center", color:C.textMuted }}>—</td>
-                  <td style={{ padding:"8px", textAlign:"center", color:C.textMuted }}>—</td>
-                  <td style={{ padding:"8px", textAlign:"center" }}>
-                    <button onClick={saveEdit} style={{ background:C.success, border:"none", color:"#fff", fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer", marginRight:4 }}>Save</button>
-                    <button onClick={()=>{setEditId(null);setEditForm(null)}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer" }}>✕</button>
+                  {canEdit && <td style={{ padding:"6px", textAlign:"center", color:C.textLight }}>≡</td>}
+                  <td style={{ padding:"6px" }}>{idx+1}</td>
+                  <td style={{ padding:"4px" }}><input value={editForm.account_name} onChange={e=>setEditForm(f=>({...f,account_name:e.target.value}))} style={eS} /></td>
+                  <td style={{ padding:"4px" }}><input value={editForm.niche} onChange={e=>setEditForm(f=>({...f,niche:e.target.value}))} style={eS} /></td>
+                  <td style={{ padding:"4px" }}><input value={editForm.followers} onChange={e=>setEditForm(f=>({...f,followers:e.target.value}))} style={{...eS,width:70}} /></td>
+                  <td style={{ padding:"4px" }}><input value={editForm.avg_views} onChange={e=>setEditForm(f=>({...f,avg_views:e.target.value}))} style={{...eS,width:70}} /></td>
+                  <td style={{ padding:"4px" }}><input value={editForm.last_upload} onChange={e=>setEditForm(f=>({...f,last_upload:e.target.value}))} style={{...eS,width:90}} /></td>
+                  <td style={{ padding:"4px" }}><select value={editForm.monetized||"No"} onChange={e=>setEditForm(f=>({...f,monetized:e.target.value}))} style={eS}><option value="No">No</option><option value="Yes">Yes</option></select></td>
+                  <td style={{ padding:"4px" }}>{catSelect(editForm.category, (v)=>setEditForm(f=>({...f,category:v})))}</td>
+                  {showTypeCol && <td style={{ padding:"4px" }}><select value={editForm.account_type||"own"} onChange={e=>setEditForm(f=>({...f,account_type:e.target.value}))} style={eS}><option value="own">Own</option><option value="partnership">Partner</option></select></td>}
+                  <td style={{ padding:"4px" }}><input value={editForm.immediate_action||""} onChange={e=>setEditForm(f=>({...f,immediate_action:e.target.value}))} style={{...eS,width:100}} /></td>
+                  <td style={{ padding:"4px" }}><select value={editForm.who_handles||""} onChange={e=>setEditForm(f=>({...f,who_handles:e.target.value}))} style={eS}><option value="">—</option>{groupMembers.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></td>
+                  {!filterByUserId && <td style={{ padding:"4px" }}><select value={editForm.assigned_to||""} onChange={e=>setEditForm(f=>({...f,assigned_to:e.target.value}))} style={eS}><option value="">—</option>{groupMembers.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></td>}
+                  <td style={{ padding:"4px" }}><select value={editForm.editor||""} onChange={e=>setEditForm(f=>({...f,editor:e.target.value}))} style={eS}><option value="">—</option>{groupMembers.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></td>
+                  <td style={{ padding:"4px" }}><input value={editForm.targets||""} onChange={e=>setEditForm(f=>({...f,targets:e.target.value}))} style={{...eS,width:80}} /></td>
+                  <td style={{ padding:"6px", textAlign:"center", color:C.textMuted }}>—</td>
+                  <td style={{ padding:"6px", textAlign:"center", color:C.textMuted }}>—</td>
+                  <td style={{ padding:"6px", textAlign:"center" }}>
+                    <button onClick={saveEdit} style={{ background:C.success, border:"none", color:"#fff", fontSize:11, padding:"4px 8px", borderRadius:4, cursor:"pointer", marginRight:4 }}>Save</button>
+                    <button onClick={()=>{setEditId(null);setEditForm(null)}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, fontSize:11, padding:"4px 8px", borderRadius:4, cursor:"pointer" }}>✕</button>
                   </td>
                 </tr>
                   )
                 } else {
                   rows.push(
                 <tr key={acc.id} draggable={canEdit} onDragStart={()=>handleDragStart(acc.id)} onDragOver={handleDragOver} onDrop={()=>handleDrop(acc.id, displayAccounts)} style={{ borderBottom:`1px solid ${C.border}`, opacity: dragId===acc.id ? 0.4 : 1 }}>
-                  {canEdit && <td style={{ padding:"10px 6px", textAlign:"center", color:C.textLight, cursor:"grab", userSelect:"none", fontSize:16 }} title="Drag to reorder">≡</td>}
-                  <td style={{ padding:"10px 12px", color:C.textMuted }}>{idx+1}</td>
-                  <td style={{ padding:"10px 12px", color:C.text, fontWeight:500 }}>{acc.account_name}</td>
-                  {!filterByUserId && <td style={{ padding:"10px 12px" }}>
-                    {acc.assigned_to ? (() => {
-                      const m = groupMembers.find(x => x.id === acc.assigned_to)
-                      return m ? <span style={{ background:C.primaryLight, color:C.primary, fontSize:11, padding:"3px 10px", borderRadius:12, fontWeight:600 }}>👤 {m.name}</span> : <span style={{ color:C.textMuted, fontSize:11 }}>?</span>
-                    })() : <span style={{ color:C.textLight, fontSize:11 }}>Unassigned</span>}
-                  </td>}
-                  <td style={{ padding:"10px 12px" }}>
-                    {acc.category ? <span style={{ background:catColor(acc.category)+"22", color:catColor(acc.category), fontSize:11, padding:"3px 10px", borderRadius:12, fontWeight:600 }}>{acc.category}</span> : "—"}
+                  {canEdit && <td style={{ padding:"8px 6px", textAlign:"center", color:C.textLight, cursor:"grab", userSelect:"none", fontSize:16 }} title="Drag to reorder">≡</td>}
+                  <td style={{ padding:"8px", color:C.textMuted }}>{idx+1}</td>
+                  <td style={{ padding:"8px", fontWeight:500 }}>{acc.tiktok_link ? <a href={acc.tiktok_link} target="_blank" rel="noopener noreferrer" style={{ color:C.primary, textDecoration:"none" }}>{acc.account_name}</a> : <span style={{ color:C.text }}>{acc.account_name}</span>}</td>
+                  <td style={{ padding:"8px", color:C.textMuted, fontSize:12 }}>{acc.niche || "—"}</td>
+                  <td style={{ padding:"8px", fontSize:12 }}>{acc.followers || "—"}</td>
+                  <td style={{ padding:"8px", fontSize:12 }}>{acc.avg_views || "—"}</td>
+                  <td style={{ padding:"8px", fontSize:12 }}>{acc.last_upload || "—"}</td>
+                  <td style={{ padding:"8px", textAlign:"center" }}>
+                    {(acc.monetized||"No")==="Yes" 
+                      ? <span style={{ color:C.success, fontWeight:600, fontSize:12 }}>✓ Yes</span>
+                      : <span style={{ color:C.danger, fontWeight:600, fontSize:12 }}>✕ No</span>}
+                  </td>
+                  <td style={{ padding:"8px" }}>
+                    {acc.category ? <span style={{ background:catColor(acc.category)+"22", color:catColor(acc.category), fontSize:11, padding:"3px 8px", borderRadius:12, fontWeight:600 }}>{acc.category}</span> : "—"}
                   </td>
                   {showTypeCol && (
-                    <td style={{ padding:"10px 12px" }}>
+                    <td style={{ padding:"8px" }}>
                       {(acc.account_type||"own") === "partnership" 
-                        ? <span style={{ background:C.orangeLight, color:C.orange, fontSize:11, padding:"3px 10px", borderRadius:12, fontWeight:600 }}>🤝 Partnership</span>
-                        : <span style={{ background:C.successLight, color:C.success, fontSize:11, padding:"3px 10px", borderRadius:12, fontWeight:600 }}>🏢 Own</span>}
+                        ? <span style={{ background:C.orangeLight, color:C.orange, fontSize:11, padding:"3px 8px", borderRadius:12, fontWeight:600 }}>🤝</span>
+                        : <span style={{ background:C.successLight, color:C.success, fontSize:11, padding:"3px 8px", borderRadius:12, fontWeight:600 }}>🏢</span>}
                     </td>
                   )}
-                  <td style={{ padding:"10px 12px" }}>{acc.niche || "—"}</td>
-                  <td style={{ padding:"10px 12px" }}>{acc.tiktok_link ? <a href={acc.tiktok_link} target="_blank" rel="noopener noreferrer" style={{ color:C.primary, fontSize:12 }}>Open →</a> : "—"}</td>
-                  <td style={{ padding:"10px 12px" }}>{acc.video_source || "—"}</td>
-                  <td style={{ padding:"10px 12px" }}>{acc.competitor_link ? <a href={acc.competitor_link} target="_blank" rel="noopener noreferrer" style={{ color:C.warning, fontSize:12 }}>🎯 Open</a> : "—"}</td>
+                  <td style={{ padding:"8px", fontSize:12, color:C.textMuted, maxWidth:120, overflow:"hidden", textOverflow:"ellipsis" }}>{acc.immediate_action || "—"}</td>
+                  <td style={{ padding:"8px" }}>{acc.who_handles ? (() => { const m = groupMembers.find(x=>x.id===acc.who_handles); return m ? <span style={{ background:C.primaryLight, color:C.primary, fontSize:10, padding:"2px 8px", borderRadius:10, fontWeight:600 }}>{m.name}</span> : "?" })() : "—"}</td>
+                  {!filterByUserId && <td style={{ padding:"8px" }}>{acc.assigned_to ? (() => { const m = groupMembers.find(x=>x.id===acc.assigned_to); return m ? <span style={{ background:C.warningLight, color:C.warning, fontSize:10, padding:"2px 8px", borderRadius:10, fontWeight:600 }}>{m.name}</span> : "?" })() : "—"}</td>}
+                  <td style={{ padding:"8px" }}>{acc.editor ? (() => { const m = groupMembers.find(x=>x.id===acc.editor); return m ? <span style={{ background:C.purpleLight, color:C.purple, fontSize:10, padding:"2px 8px", borderRadius:10, fontWeight:600 }}>{m.name}</span> : "?" })() : "—"}</td>
+                  <td style={{ padding:"8px", fontSize:12, color:C.textMuted }}>{acc.targets || "—"}</td>
                   <td style={{ padding:"8px", textAlign:"center" }}>
-                    <button onClick={()=>toggleStatus(acc)} style={{ background:isDone(acc)?C.successLight:C.dangerLight, color:isDone(acc)?C.success:C.danger, border:"none", borderRadius:20, padding:"5px 14px", fontSize:12, fontWeight:600, cursor:"pointer" }}>
-                      {isDone(acc) ? "✓ Done" : "Not Yet"}
+                    <button onClick={()=>toggleStatus(acc)} style={{ background:isDone(acc)?C.successLight:C.dangerLight, color:isDone(acc)?C.success:C.danger, border:"none", borderRadius:20, padding:"4px 12px", fontSize:11, fontWeight:600, cursor:"pointer" }}>
+                      {isDone(acc) ? "Done" : "Not Yet"}
                     </button>
                   </td>
                   <td style={{ padding:"8px", textAlign:"center" }}>
-                    <button onClick={()=>setExpandedId(expandedId===acc.id?null:acc.id)} style={{ background:accComments.length>0?C.warningLight:"transparent", color:accComments.length>0?C.warning:C.textMuted, border:`1px solid ${accComments.length>0?C.warning:C.border}`, fontSize:11, padding:"5px 10px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>💬 {accComments.length}</button>
+                    <button onClick={()=>setExpandedId(expandedId===acc.id?null:acc.id)} style={{ background:accComments.length>0?C.warningLight:"transparent", color:accComments.length>0?C.warning:C.textMuted, border:`1px solid ${accComments.length>0?C.warning:C.border}`, fontSize:11, padding:"4px 8px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>{accComments.length}</button>
                   </td>
                   {canEdit && (
                     <td style={{ padding:"8px", textAlign:"center" }}>
-                      <button onClick={()=>{setEditId(acc.id); setEditForm({account_name:acc.account_name, niche:acc.niche||"", tiktok_link:acc.tiktok_link||"", video_source:acc.video_source||"", competitor_link:acc.competitor_link||"", category:acc.category||"", assigned_to:acc.assigned_to||"", account_type:acc.account_type||"own"})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer", marginRight:4, fontWeight:600 }}>Edit</button>
-                      <button onClick={()=>deleteAccount(acc.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:11, padding:"4px 10px", borderRadius:4, cursor:"pointer" }}>✕</button>
+                      <button onClick={()=>{setEditId(acc.id); setEditForm({account_name:acc.account_name, niche:acc.niche||"", tiktok_link:acc.tiktok_link||"", video_source:acc.video_source||"", competitor_link:acc.competitor_link||"", category:acc.category||"", assigned_to:acc.assigned_to||"", account_type:acc.account_type||"own", followers:acc.followers||"", avg_views:acc.avg_views||"", last_upload:acc.last_upload||"", monetized:acc.monetized||"No", immediate_action:acc.immediate_action||"", who_handles:acc.who_handles||"", editor:acc.editor||"", targets:acc.targets||""})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:11, padding:"4px 8px", borderRadius:4, cursor:"pointer", marginRight:4, fontWeight:600 }}>Edit</button>
+                      <button onClick={()=>deleteAccount(acc.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:11, padding:"4px 8px", borderRadius:4, cursor:"pointer" }}>✕</button>
                     </td>
                   )}
                 </tr>
                   )
                 }
                 if (expandedId === acc.id) {
-                  const totalCols = 9 + (canEdit?2:0) + (!filterByUserId?1:0) + (showTypeCol?1:0)
+                  const totalCols = 15 + (canEdit?2:0) + (!filterByUserId?1:0) + (showTypeCol?1:0)
                   rows.push(
                     <tr key={acc.id+"_c"} style={{ background:C.bg }}>
                       <td colSpan={totalCols} style={{ padding:"14px 20px", borderBottom:`1px solid ${C.border}` }}>
@@ -564,7 +595,6 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName, showAccountTyp
 // ============ SHARED: Team Links ============
 function TeamLinks({ teamId, canEdit }) {
   const C = useC()
- {
   const [links, setLinks] = useState([])
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState({ name:"", url:"", link_type:"sheet", notes:"" })
@@ -675,7 +705,6 @@ function TeamLinks({ teamId, canEdit }) {
 // ============ SHARED: Ideas Board ============
 function IdeasBoard({ user, table, title, emoji }) {
   const C = useC()
- {
   const [ideas, setIdeas] = useState([])
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState({ name:"", description:"", link:"" })
@@ -776,7 +805,6 @@ function IdeasBoard({ user, table, title, emoji }) {
 // ============ SHARED: Member Form Fields (for both admin + team lead create/edit) ============
 function MemberFormFields({ form, setForm, showTeam=false, showCgp=false, teamGroups=[], cgpGroups=[] }) {
   const C = useC()
- {
   return (
     <>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
@@ -861,7 +889,6 @@ const emptyMemberForm = () => ({
 // ============ SHARED: Gmail Credentials Vault ============
 function GmailAccounts({ teamId, canEdit }) {
   const C = useC()
- {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [showPw, setShowPw] = useState({})
@@ -993,7 +1020,6 @@ function GmailAccounts({ teamId, canEdit }) {
 // ============ SHARED: Group Members Management ============
 function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage }) {
   const C = useC()
- {
   const isCGP = groupMode === 'cgp'
   const [addMode, setAddMode] = useState(null)
   const [existingSelect, setExistingSelect] = useState("")
@@ -1139,7 +1165,6 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
 // ============ SHARED: Groups Section ============
 function GroupsSection({ data, refresh, groupType, sectionLabel }) {
   const C = useC()
- {
   const [form, setForm] = useState({ name:"", description:"", team_lead_id:"" })
   const [adding, setAdding] = useState(false)
   const [selectedTeam, setSelectedTeam] = useState(null)
@@ -1290,7 +1315,6 @@ function GroupsSection({ data, refresh, groupType, sectionLabel }) {
 // ============ ADMIN DASHBOARD ============
 function ManagerDashboard({ user, onLogout }) {
   const C = useC()
- {
   const [tab, setTab] = useState("members")
   const [data, setData] = useState({ members:[], tasks:[], attendance:{}, reports:{}, stats:{}, reportComments:{}, teams:[], accounts:[] })
   const [loading, setLoading] = useState(true)
@@ -1343,7 +1367,6 @@ function ManagerDashboard({ user, onLogout }) {
 
 function ManagerMembers({ data, refresh }) {
   const C = useC()
- {
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState(null)
 
@@ -1409,7 +1432,6 @@ function ManagerMembers({ data, refresh }) {
 
 function AdminDashboard({ user, onLogout }) {
   const C = useC()
- {
   const [tab, setTab] = useState("overview")
   const [data, setData] = useState({ members:[], tasks:[], attendance:{}, reports:{}, stats:{}, reportComments:{}, teams:[], accounts:[] })
   const [loading, setLoading] = useState(true)
@@ -1562,7 +1584,6 @@ function AbsenteesWarning({ data }) {
 
 function AnalyticsDashboard({ data }) {
   const C = useC()
- {
   const td = today()
   // Compute last 7 days
   const days = []
@@ -1721,7 +1742,6 @@ function AnalyticsDashboard({ data }) {
 
 function LeaderboardView({ data }) {
   const C = useC()
- {
   // Compute rankings for last 30 days
   const days = []
   for (let i = 29; i >= 0; i--) {
@@ -1806,7 +1826,6 @@ function LeaderboardView({ data }) {
 
 function AdminOverview({ data }) {
   const C = useC()
- {
   const td = today()
   const att = data.attendance[td] || {}
   const ontime = Object.values(att).filter(a=>a.status==="ontime").length
@@ -1915,7 +1934,6 @@ function AdminOverview({ data }) {
 
 function AdminMembers({ data, refresh }) {
   const C = useC()
- {
   const [form, setForm] = useState(emptyMemberForm())
   const [adding, setAdding] = useState(false)
   const [credShow, setCredShow] = useState(null)
@@ -2023,7 +2041,6 @@ function AdminMembers({ data, refresh }) {
 
 function AdminTasks({ data, refresh }) {
   const C = useC()
- {
   const [form, setForm] = useState({ title:"", assigned_to:"", deadline:"", priority:"medium", category:"Development" })
   const [adding, setAdding] = useState(false)
   const addTask = async () => {
@@ -2084,7 +2101,6 @@ function AdminTasks({ data, refresh }) {
 
 function AdminAttendance({ data, refresh }) {
   const C = useC()
- {
   const [viewDate, setViewDate] = useState(today())
   const att = data.attendance[viewDate] || {}
   const reset = async (id) => {
@@ -2124,7 +2140,6 @@ function AdminAttendance({ data, refresh }) {
 
 function AdminReports({ data, user, refresh }) {
   const C = useC()
- {
   const [viewDate, setViewDate] = useState(today())
   const reports = data.reports[viewDate] || {}
   const [commentText, setCommentText] = useState({})
@@ -2189,7 +2204,6 @@ function AdminReports({ data, user, refresh }) {
 // ============ SHIFT + JOB CARD (shown on member/team-lead home) ============
 function ShiftJobCard({ user }) {
   const C = useC()
- {
   return (
     <div style={{ background:`linear-gradient(135deg, ${C.primary}, ${C.purple})`, borderRadius:14, padding:20, marginBottom:20, color:"#fff" }}>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
@@ -2210,7 +2224,6 @@ function ShiftJobCard({ user }) {
 // ============ TEAM LEAD DASHBOARD ============
 function TeamLeadDashboard({ user, onLogout }) {
   const C = useC()
- {
   const [tab, setTab] = useState("home")
   const [team, setTeam] = useState(null)
   const [cgp, setCgp] = useState(null)
@@ -2298,7 +2311,6 @@ function TeamLeadDashboard({ user, onLogout }) {
 // ============ MEMBER DASHBOARD ============
 function MemberDashboard({ user, onLogout }) {
   const C = useC()
- {
   const [tab, setTab] = useState("home")
   const [data, setData] = useState({ tasks:[], attendance:{}, reports:{}, stats:{lateCount:0,strikes:0}, reportComments:{}, team:null, teamMembers:[], cgp:null, cgpMembers:[] })
   const [loading, setLoading] = useState(true)
@@ -2469,7 +2481,6 @@ function MemberHome({ data, user, refresh }) {
 
 function TeamLeadHome({ user, team, cgp, members, myData, refresh }) {
   const C = useC()
- {
   const td = today()
   const att = myData.attendance[td]
   const [now, setNow] = useState(nowHHMM())
@@ -2574,7 +2585,6 @@ function TeamLeadHome({ user, team, cgp, members, myData, refresh }) {
 
 function MemberCheckin({ data, user, refresh }) {
   const C = useC()
- {
   const [now, setNow] = useState(nowHHMM())
   const [lateReason, setLateReason] = useState("")
   const td = today()
@@ -2657,7 +2667,6 @@ function MemberCheckin({ data, user, refresh }) {
 
 function MemberTasks({ data, refresh }) {
   const C = useC()
- {
   const pColor = { high:C.danger, medium:C.warning, low:C.success }
   const pBg = { high:C.dangerLight, medium:C.warningLight, low:C.successLight }
   const upd = async (id, status) => { await supabase.from('tasks').update({ status, progress:status==="done"?100:undefined }).eq('id', id); refresh() }
@@ -2687,7 +2696,6 @@ function MemberTasks({ data, refresh }) {
 
 function MemberReport({ data, user, refresh }) {
   const C = useC()
- {
   const td = today()
   const existing = data.reports[td]
   const [form, setForm] = useState(existing || { tasksCompleted:"", hoursWorked:"", blockers:"", notes:"" })
@@ -2737,7 +2745,6 @@ function MemberReport({ data, user, refresh }) {
 
 function MemberGroupView({ group, groupMembers, groupMode, user }) {
   const C = useC()
- {
   if (!group) return <p style={{ color:C.textMuted, fontSize:14 }}>Aap kisi {groupMode==='cgp'?'CGP':'team'} mein nahi hain.</p>
   const emoji = groupMode==='cgp' ? '🚀' : '👥'
   return (
