@@ -1436,6 +1436,9 @@ function MasterSheet({ currentUser }) {
   const [monFilter, setMonFilter] = useState("all")
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState(null)
+  const [adding, setAdding] = useState(false)
+  const emptyAdd = { account_name:"", niche:"", tiktok_link:"", followers:"", avg_views:"", monetized:"No", category:"", team_id:"", immediate_action:"", assigned_to:"", uploader:"", editor:"", targets:"" }
+  const [addForm, setAddForm] = useState(emptyAdd)
 
   const isAdmin = currentUser?.isAdmin
   const isTeamLead = currentUser?.isTeamLead
@@ -1466,6 +1469,29 @@ function MasterSheet({ currentUser }) {
     if (error) return alert("Error: " + error.message)
     setEditId(null); setEditForm(null)
     load()
+  }
+
+  const addAccount = async () => {
+    if (!addForm.account_name.trim()) return alert("Page Name zaroori hai!")
+    if (!addForm.team_id) return alert("Team select karo!")
+    const { error } = await supabase.from('tiktok_accounts').insert({
+      id: "acc" + Date.now(),
+      ...addForm,
+      status: "not_yet",
+      status_date: null,
+      sort_order: (accounts.length + 1) * 100
+    })
+    if (error) return alert("Error: " + error.message)
+    setAddForm(emptyAdd)
+    setAdding(false)
+    load()
+  }
+
+  const deleteAccount = async (id, name) => {
+    if (!confirm(`"${name}" delete karna chahte ho?`)) return
+    await supabase.from('account_comments').delete().eq('account_id', id)
+    await supabase.from('tiktok_accounts').delete().eq('id', id)
+    setAccounts(a => a.filter(x => x.id !== id))
   }
 
   // Role-based filtering
@@ -1507,7 +1533,62 @@ function MasterSheet({ currentUser }) {
         <h2 style={{ color:C.text, fontSize:20, fontWeight:700 }}>📋 Master Sheet</h2>
         <span style={{ background:C.primaryLight, color:C.primary, fontSize:11, padding:"3px 10px", borderRadius:12, fontWeight:600 }}>{filtered.length} accounts</span>
         {!isAdmin && !isTeamLead && <span style={{ background:C.warningLight, color:C.warning, fontSize:11, padding:"3px 10px", borderRadius:12, fontWeight:500 }}>👤 Your assigned accounts</span>}
+        {isAdmin && (
+          <button onClick={()=>setAdding(!adding)} style={{ marginLeft:"auto", background:adding?C.border:C.primary, border:"none", color:adding?C.text:"#fff", padding:"8px 18px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>
+            {adding ? "✕ Cancel" : "+ Add Account"}
+          </button>
+        )}
       </div>
+
+      {adding && isAdmin && (
+        <div style={{ background:C.surface, border:`1px solid ${C.primary}`, borderRadius:12, padding:18, marginBottom:18 }}>
+          <p style={{ color:C.primary, fontSize:12, fontWeight:600, marginBottom:10 }}>📝 New Account</p>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:10 }}>
+            <input value={addForm.account_name} onChange={e=>setAddForm(f=>({...f,account_name:e.target.value}))} placeholder="Page Name *" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }} />
+            <input value={addForm.niche} onChange={e=>setAddForm(f=>({...f,niche:e.target.value}))} placeholder="Niche" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }} />
+            <input value={addForm.tiktok_link} onChange={e=>setAddForm(f=>({...f,tiktok_link:e.target.value}))} placeholder="TikTok Link" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }} />
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:10 }}>
+            <input value={addForm.followers} onChange={e=>setAddForm(f=>({...f,followers:e.target.value}))} placeholder="Followers (e.g. 701k)" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }} />
+            <input value={addForm.avg_views} onChange={e=>setAddForm(f=>({...f,avg_views:e.target.value}))} placeholder="Avg Views (e.g. 100k)" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }} />
+            <select value={addForm.monetized} onChange={e=>setAddForm(f=>({...f,monetized:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }}>
+              <option value="No">Monetized: No</option>
+              <option value="Yes">Monetized: Yes</option>
+            </select>
+            <select value={addForm.category} onChange={e=>setAddForm(f=>({...f,category:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }}>
+              <option value="">-- Category --</option>
+              {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+            </select>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:10 }}>
+            <select value={addForm.team_id} onChange={e=>setAddForm(f=>({...f,team_id:e.target.value}))} style={{ border:`1px solid ${C.primary}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }}>
+              <option value="">-- Team * --</option>
+              {teams.map(t => <option key={t.id} value={t.id}>{t.group_type==='cgp'?'🚀':'👥'} {t.name}</option>)}
+            </select>
+            <input value={addForm.immediate_action} onChange={e=>setAddForm(f=>({...f,immediate_action:e.target.value}))} placeholder="Immediate Action" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }} />
+            <input value={addForm.targets} onChange={e=>setAddForm(f=>({...f,targets:e.target.value}))} placeholder="Targets" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }} />
+            <div />
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:14 }}>
+            <select value={addForm.assigned_to} onChange={e=>setAddForm(f=>({...f,assigned_to:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }}>
+              <option value="">-- Manager --</option>
+              {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <select value={addForm.uploader} onChange={e=>setAddForm(f=>({...f,uploader:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }}>
+              <option value="">-- Uploader --</option>
+              {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <select value={addForm.editor} onChange={e=>setAddForm(f=>({...f,editor:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }}>
+              <option value="">-- Editor --</option>
+              {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          </div>
+          <div style={{ display:"flex", gap:8 }}>
+            <button onClick={addAccount} style={{ background:C.success, border:"none", color:"#fff", padding:"9px 24px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>Save Account</button>
+            <button onClick={()=>{setAdding(false);setAddForm(emptyAdd)}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"9px 16px", borderRadius:8, fontSize:13, cursor:"pointer" }}>Cancel</button>
+          </div>
+        </div>
+      )}
 
       {(isAdmin || isTeamLead) && (
         <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
@@ -1586,7 +1667,8 @@ function MasterSheet({ currentUser }) {
                   <td style={{ padding:"8px", fontSize:11, color:C.textMuted }}>{acc.targets||"—"}</td>
                   {canEdit && (
                     <td style={{ padding:"8px", textAlign:"center" }}>
-                      <button onClick={()=>{setEditId(acc.id); setEditForm({account_name:acc.account_name, niche:acc.niche||"", category:acc.category||"", assigned_to:acc.assigned_to||"", followers:acc.followers||"", avg_views:acc.avg_views||"", monetized:acc.monetized||"No", immediate_action:acc.immediate_action||"", uploader:acc.uploader||"", editor:acc.editor||"", targets:acc.targets||""})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:10, padding:"4px 8px", borderRadius:4, cursor:"pointer", fontWeight:600 }}>Edit</button>
+                      <button onClick={()=>{setEditId(acc.id); setEditForm({account_name:acc.account_name, niche:acc.niche||"", category:acc.category||"", assigned_to:acc.assigned_to||"", followers:acc.followers||"", avg_views:acc.avg_views||"", monetized:acc.monetized||"No", immediate_action:acc.immediate_action||"", uploader:acc.uploader||"", editor:acc.editor||"", targets:acc.targets||""})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:10, padding:"4px 8px", borderRadius:4, cursor:"pointer", fontWeight:600, marginRight:4 }}>Edit</button>
+                      {isAdmin && <button onClick={()=>deleteAccount(acc.id, acc.account_name)} style={{ background:"transparent", border:`1px solid ${C.danger}`, color:C.danger, fontSize:10, padding:"4px 8px", borderRadius:4, cursor:"pointer", fontWeight:600 }}>✕ Remove</button>}
                     </td>
                   )}
                 </tr>
