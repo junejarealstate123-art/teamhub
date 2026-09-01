@@ -5,7 +5,7 @@ import { supabase } from './supabase'
 const TZ = 'Asia/Karachi'
 
 const today = () => {
-  // Get date in Pakistan timezone as YYYY-MM-DD
+  // Get date in Pakistan timezone as YYYY-MM-DDa
   const d = new Date()
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year:'numeric', month:'2-digit', day:'2-digit' }).format(d)
   return parts // en-CA gives YYYY-MM-DD
@@ -243,7 +243,7 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName }) {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data:accs }, { data:cats }, { data:allMembers }, { data:teams }, { data:coms }, { data:teamMems }] = await Promise.all([
+    const [{ data:accs }, { data:cats }, { data:allMembers }, { data:teams }, { data:coms }] = await Promise.all([
       supabase.from('tiktok_accounts').select('*').eq('team_id', teamId).order('sort_order', { nullsFirst:false }).order('created_at'),
       supabase.from('account_categories').select('*').order('created_at'),
       supabase.from('members').select('*').eq('is_admin', false),
