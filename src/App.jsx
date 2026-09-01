@@ -2496,56 +2496,76 @@ function ShiftJobCard({ user }) {
 function TeamLeadDashboard({ user, onLogout }) {
   const C = useC()
   const [tab, setTab] = useState("home")
-  const [team, setTeam] = useState(null)
+  const [allTeams, setAllTeams] = useState([]) // all teams user belongs to with role info
   const [cgp, setCgp] = useState(null)
   const [members, setMembers] = useState([])
   const [myData, setMyData] = useState({ tasks:[], attendance:{}, reports:{}, stats:{lateCount:0,strikes:0}, reportComments:{} })
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
-    const [teamRes, cgpRes, { data:allMems }, { data:tasks }, { data:att }, { data:reps }, { data:stats }, { data:rc }] = await Promise.all([
-      user.teamId ? supabase.from('teams').select('*').eq('id', user.teamId).maybeSingle() : Promise.resolve({data:null}),
-      user.cgpId ? supabase.from('teams').select('*').eq('id', user.cgpId).maybeSingle() : Promise.resolve({data:null}),
+    const teamIds = user.teamIds || (user.teamId ? [user.teamId] : [])
+    const cgpIds = user.cgpIds || (user.cgpId ? [user.cgpId] : [])
+
+    const [teamsRes, cgpRes, { data:allMems }, { data:tasks }, { data:att }, { data:reps }, { data:stats }, { data:rc }, leadOfRes] = await Promise.all([
+      teamIds.length ? supabase.from('teams').select('*').in('id', teamIds) : Promise.resolve({data:[]}),
+      cgpIds.length ? supabase.from('teams').select('*').in('id', cgpIds) : Promise.resolve({data:[]}),
       supabase.from('members').select('*').eq('is_admin', false).order('created_at'),
       supabase.from('tasks').select('*').eq('assigned_to', user.id).order('created_at'),
       supabase.from('attendance').select('*').eq('member_id', user.id),
       supabase.from('reports').select('*').eq('member_id', user.id),
       supabase.from('member_stats').select('*').eq('member_id', user.id).maybeSingle(),
       supabase.from('report_comments').select('*').eq('report_member_id', user.id).order('created_at'),
+      supabase.from('teams').select('id').eq('team_lead_id', user.id),
     ])
-    setTeam(teamRes.data)
-    setCgp(cgpRes.data)
+
+    // Which teams is this user the lead of?
+    const leadOfIds = new Set((leadOfRes.data||[]).map(t => t.id))
+
+    // Build teams with role
+    const teamsWithRole = teamIds.map(id => {
+      const t = (teamsRes.data||[]).find(x => x.id === id)
+      if (!t) return null
+      const isLeadHere = leadOfIds.has(id)
+      const teamMems = (allMems||[]).filter(m =>
+        m.team_id === id || m.team_id_2 === id || m.team_id_3 === id
+      )
+      return { ...t, isLeadHere, teamMems }
+    }).filter(Boolean)
+
+    setAllTeams(teamsWithRole)
+    setCgp((cgpRes.data||[])[0] || null)
     setMembers(allMems || [])
+
     const attMap = {}; (att||[]).forEach(a=>{ attMap[a.date]={checkIn:a.check_in,checkOut:a.check_out,status:a.status} })
     const repMap = {}; (reps||[]).forEach(r=>{ repMap[r.date]={tasksCompleted:r.tasks_completed,hoursWorked:r.hours_worked,blockers:r.blockers,notes:r.notes} })
     const rcMap = {}; (rc||[]).forEach(c=>{ if(!rcMap[c.report_date]) rcMap[c.report_date]=[]; rcMap[c.report_date].push({author:c.author, text:c.text}) })
     setMyData({ tasks:tasks||[], attendance:attMap, reports:repMap, stats:stats?{lateCount:stats.late_count, strikes:stats.strikes}:{lateCount:0,strikes:0}, reportComments:rcMap })
     setLoading(false)
-  }, [user.id, user.teamId, user.cgpId])
+  }, [user.id, JSON.stringify(user.teamIds||[]), JSON.stringify(user.cgpIds||[])])
 
   useEffect(() => { refresh() }, [refresh])
 
   if (loading) return <ThemeProvider><Loader /></ThemeProvider>
 
-  if (!team && !cgp) return (
-    <div style={{ minHeight:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
-      <div style={{ textAlign:"center" }}>
-        <p style={{ color:C.textMuted, fontSize:14, marginBottom:14 }}>Aap kisi group ke Lead nahi hain abhi.</p>
-        <button onClick={onLogout} style={{ background:C.primary, border:"none", color:"#fff", padding:"9px 20px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>Logout</button>
-      </div>
-    </div>
-  )
-
-  const primary = team || cgp
+  // Primary team for home page
+  const primaryTeam = allTeams.find(t => t.id === user.teamId) || allTeams[0] || null
 
   const tabs = [{ id:"home", label:"Home", icon:"🏠" }]
-  if (team) {
-    tabs.push({ section:"My Team" })
-    tabs.push({ id:"team", label:"Members", icon:"👥" })
-    tabs.push({ id:"team_accounts", label:"Accounts", icon:"📊" })
-    tabs.push({ id:"team_links", label:"Links", icon:"🔗" })
-    tabs.push({ id:"team_gmail", label:"Gmail", icon:"📧" })
-  }
+
+  // Add each team as separate section
+  allTeams.forEach((t, i) => {
+    tabs.push({ section: t.isLeadHere ? `👑 ${t.name}` : `👥 ${t.name}` })
+    if (t.isLeadHere) {
+      tabs.push({ id:`team_${i}_members`, label:"Members", icon:"👥" })
+      tabs.push({ id:`team_${i}_accounts`, label:"Accounts", icon:"📊" })
+      tabs.push({ id:`team_${i}_links`, label:"Links", icon:"🔗" })
+      tabs.push({ id:`team_${i}_gmail`, label:"Gmail", icon:"📧" })
+    } else {
+      // Just a member — only see assigned accounts
+      tabs.push({ id:`team_${i}_accounts`, label:"My Accounts", icon:"📊" })
+    }
+  })
+
   if (cgp) {
     tabs.push({ section:"My CGP" })
     tabs.push({ id:"cgp", label:"Members", icon:"🚀" })
@@ -2553,6 +2573,7 @@ function TeamLeadDashboard({ user, onLogout }) {
     tabs.push({ id:"cgp_links", label:"Links", icon:"🔗" })
     tabs.push({ id:"cgp_gmail", label:"Gmail", icon:"📧" })
   }
+
   tabs.push({ section:"Work" })
   tabs.push({ id:"mastersheet", label:"Master Sheet", icon:"📋" })
   tabs.push({ id:"tasks", label:"My Tasks", icon:"✅" })
@@ -2565,16 +2586,52 @@ function TeamLeadDashboard({ user, onLogout }) {
     <SidebarLayout tabs={tabs} activeTab={tab} setTab={setTab} user={user} roleBadge="Team Lead" roleColor={getColor(user.id)} onLogout={onLogout}>
       <div>
         {tab==="home" && (
-          <TeamLeadHome user={user} team={team} cgp={cgp} members={members} myData={myData} refresh={refresh} />
+          <TeamLeadHome user={user} team={primaryTeam} cgp={cgp} members={members} myData={myData} refresh={refresh} />
         )}
-        {tab==="team" && team && <GroupMembersManage groupId={team.id} groupMode="team" allMembers={members} refresh={refresh} canManage={true} />}
-        {tab==="team_accounts" && team && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📊 Team TikTok Accounts</h2><TikTokSheet teamId={team.id} canEdit={true} userName={user.name} /></div>}
-        {tab==="team_links" && team && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🔗 Team Links</h2><TeamLinks teamId={team.id} canEdit={true} /></div>}
-        {tab==="team_gmail" && team && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📧 Team Gmail + Login Password</h2><GmailAccounts teamId={team.id} canEdit={true} /></div>}
+
+        {/* Dynamic team tabs */}
+        {allTeams.map((t, i) => (
+          <div key={t.id}>
+            {/* Members tab — only for lead */}
+            {tab===`team_${i}_members` && t.isLeadHere && (
+              <GroupMembersManage groupId={t.id} groupMode="team" allMembers={members} refresh={refresh} canManage={true} />
+            )}
+            {/* Accounts tab */}
+            {tab===`team_${i}_accounts` && (
+              <div>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16 }}>
+                  <h2 style={{ color:C.text, fontSize:20, fontWeight:700 }}>
+                    {t.isLeadHere ? "📊" : "🎯"} {t.name} — {t.isLeadHere ? "All Accounts" : "My Assigned Accounts"}
+                  </h2>
+                  {t.isLeadHere
+                    ? <span style={{ background:C.warningLight, color:C.warning, fontSize:11, padding:"3px 10px", borderRadius:12, fontWeight:600 }}>👑 You are Lead</span>
+                    : <span style={{ background:C.primaryLight, color:C.primary, fontSize:11, padding:"3px 10px", borderRadius:12 }}>👥 Team Member</span>
+                  }
+                </div>
+                {!t.isLeadHere && <p style={{ color:C.textMuted, fontSize:12, marginBottom:12 }}>💡 Sirf wo accounts dikh rahe hain jo Team Lead ne aapko assign kiye hain.</p>}
+                <TikTokSheet
+                  teamId={t.id}
+                  canEdit={t.isLeadHere}
+                  filterByUserId={t.isLeadHere ? null : user.id}
+                  userName={user.name}
+                />
+              </div>
+            )}
+            {/* Links — only for lead */}
+            {tab===`team_${i}_links` && t.isLeadHere && (
+              <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🔗 {t.name} Links</h2><TeamLinks teamId={t.id} canEdit={true} /></div>
+            )}
+            {/* Gmail — only for lead */}
+            {tab===`team_${i}_gmail` && t.isLeadHere && (
+              <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📧 {t.name} Gmail</h2><GmailAccounts teamId={t.id} canEdit={true} /></div>
+            )}
+          </div>
+        ))}
+
         {tab==="cgp" && cgp && <GroupMembersManage groupId={cgp.id} groupMode="cgp" allMembers={members} refresh={refresh} canManage={true} />}
-        {tab==="cgp_accounts" && cgp && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📊 CGP TikTok Accounts</h2><TikTokSheet teamId={cgp.id} canEdit={true} userName={user.name} /></div>}
+        {tab==="cgp_accounts" && cgp && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📊 CGP Accounts</h2><TikTokSheet teamId={cgp.id} canEdit={true} userName={user.name} /></div>}
         {tab==="cgp_links" && cgp && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🔗 CGP Links</h2><TeamLinks teamId={cgp.id} canEdit={true} /></div>}
-        {tab==="cgp_gmail" && cgp && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📧 CGP Gmail + Login Password</h2><GmailAccounts teamId={cgp.id} canEdit={true} /></div>}
+        {tab==="cgp_gmail" && cgp && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>📧 CGP Gmail</h2><GmailAccounts teamId={cgp.id} canEdit={true} /></div>}
         {tab==="mastersheet" && <MasterSheet currentUser={user} />}
         {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas</h2><IdeasBoard user={user} table="niche_ideas" title="Niche Ideas Board" emoji="💡" /></div>}
         {tab==="voiceover" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🎙️ Voiceover Ideas</h2><IdeasBoard user={user} table="voiceover_ideas" title="Voiceover Ideas Board" emoji="🎙️" /></div>}
