@@ -1423,252 +1423,289 @@ function AdminDashboard({ user, onLogout }) {
   )
 }
 
-// ============ MASTER SHEET (Audit View) ============
+// ============ MASTER SHEET — INDEPENDENT MODULE ============
 function MasterSheet({ currentUser }) {
   const C = useC()
-  const [accounts, setAccounts] = useState([])
-  const [members, setMembers] = useState([])
-  const [teams, setTeams] = useState([])
-  const [categories, setCategories] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [teamFilter, setTeamFilter] = useState("all")
-  const [catFilter, setCatFilter] = useState("all")
-  const [monFilter, setMonFilter] = useState("all")
-  const [editId, setEditId] = useState(null)
-  const [editForm, setEditForm] = useState(null)
-  const [adding, setAdding] = useState(false)
-  const emptyAdd = { account_name:"", niche:"", tiktok_link:"", followers:"", avg_views:"", monetized:"No", category:"", team_id:"", immediate_action:"", assigned_to:"", uploader:"", editor:"", targets:"" }
-  const [addForm, setAddForm] = useState(emptyAdd)
-
   const isAdmin = currentUser?.isAdmin
   const isTeamLead = currentUser?.isTeamLead
-  const canEdit = isAdmin || isTeamLead
+  const isMember = !isAdmin && !isTeamLead
+
+  const [accounts, setAccounts] = useState([])
+  const [members, setMembers] = useState([])
+  const [categories, setCategories] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState("")
+  const [catFilter, setCatFilter] = useState("all")
+  const [monFilter, setMonFilter] = useState("all")
+  const [adding, setAdding] = useState(false)
+  const [editId, setEditId] = useState(null)
+  const [editForm, setEditForm] = useState(null)
+  const [dragId, setDragId] = useState(null)
+
+  const emptyForm = { account_name:"", niche:"", tiktok_link:"", followers:"", avg_views:"", monetized:"No", category:"", immediate_action:"", manager_id:"", uploader:"", editor:"", targets:"" }
+  const [addForm, setAddForm] = useState(emptyForm)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data:accs }, { data:mems }, { data:tms }, { data:cats }] = await Promise.all([
-      supabase.from('tiktok_accounts').select('*').order('sort_order', { nullsFirst:false }).order('created_at'),
-      supabase.from('members').select('*').eq('is_admin', false),
-      supabase.from('teams').select('*').order('created_at'),
+    const [{ data:accs }, { data:mems }, { data:cats }] = await Promise.all([
+      supabase.from('master_accounts').select('*').order('sort_order').order('created_at'),
+      supabase.from('members').select('id, name, avatar, is_admin').eq('is_admin', false),
       supabase.from('account_categories').select('*').order('created_at'),
     ])
     setAccounts(accs || [])
     setMembers(mems || [])
-    setTeams(tms || [])
     setCategories(cats || [])
     setLoading(false)
   }, [])
 
   useEffect(() => { load() }, [load])
 
-  const getMemberName = (id) => { const m = members.find(x=>x.id===id); return m?.name || "" }
-  const getTeamName = (id) => { const t = teams.find(x=>x.id===id); return t?.name || "—" }
-
-  const saveEdit = async () => {
-    const { error } = await supabase.from('tiktok_accounts').update(editForm).eq('id', editId)
-    if (error) return alert("Error: " + error.message)
-    setEditId(null); setEditForm(null)
-    load()
-  }
-
-  const addAccount = async () => {
-    if (!addForm.account_name.trim()) return alert("Page Name zaroori hai!")
-    if (!addForm.team_id) return alert("Team select karo!")
-    const { error } = await supabase.from('tiktok_accounts').insert({
-      id: "acc" + Date.now(),
-      ...addForm,
-      status: "not_yet",
-      status_date: null,
-      sort_order: (accounts.length + 1) * 100
-    })
-    if (error) return alert("Error: " + error.message)
-    setAddForm(emptyAdd)
-    setAdding(false)
-    load()
-  }
-
-  const deleteAccount = async (id, name) => {
-    if (!confirm(`"${name}" delete karna chahte ho?`)) return
-    await supabase.from('account_comments').delete().eq('account_id', id)
-    await supabase.from('tiktok_accounts').delete().eq('id', id)
-    setAccounts(a => a.filter(x => x.id !== id))
-  }
-
-  // Role-based filtering
-  const roleFiltered = accounts.filter(a => {
+  // Role-based filtering: member sees only their managed accounts
+  const visibleAccounts = accounts.filter(a => {
     if (isAdmin) return true
-    if (isTeamLead) {
-      const leadIds = currentUser?.leadOfIds || []
-      const teamId = currentUser?.teamId
-      const cgpIds = currentUser?.cgpIds || []
-      return leadIds.includes(a.team_id) || teamId === a.team_id || cgpIds.includes(a.team_id)
-    }
-    // Member — only assigned accounts
-    return a.assigned_to === currentUser?.id
+    if (isTeamLead) return true
+    return a.manager_id === currentUser?.id
   })
 
-  // Filter bar filters (only for admin/lead)
-  const filtered = roleFiltered.filter(a => {
-    if (teamFilter !== "all" && a.team_id !== teamFilter) return false
+  // Search + filters
+  const filtered = visibleAccounts.filter(a => {
+    if (search && !a.account_name?.toLowerCase().includes(search.toLowerCase()) && !a.niche?.toLowerCase().includes(search.toLowerCase())) return false
     if (catFilter !== "all" && a.category !== catFilter) return false
     if (monFilter !== "all" && (a.monetized||"No") !== monFilter) return false
     return true
   })
 
-  const sty = { border:`1px solid ${C.border}`, borderRadius:6, padding:"5px 6px", fontSize:12, boxSizing:"border-box", width:"100%", background:C.surface, color:C.text }
+  const getMember = (id) => members.find(m => m.id === id)
+  const getMemberName = (id) => getMember(id)?.name || ""
 
-  const PersonBadge = ({ id, color }) => {
-    const name = getMemberName(id)
-    if (!name) return <span style={{ color:C.textLight, fontSize:11 }}>—</span>
-    const bg = color === "yellow" ? C.warningLight : color === "purple" ? C.purpleLight : C.primaryLight
-    const cl = color === "yellow" ? C.warning : color === "purple" ? C.purple : C.primary
-    return <span style={{ background:bg, color:cl, fontSize:10, padding:"2px 8px", borderRadius:10, fontWeight:500 }}>{name}</span>
+  // Add
+  const addAccount = async () => {
+    if (!addForm.account_name.trim()) return alert("Page Name zaroori hai!")
+    const id = "ma" + Date.now()
+    const maxSort = accounts.length > 0 ? Math.max(...accounts.map(a => a.sort_order||0)) : 0
+    const { error } = await supabase.from('master_accounts').insert({ id, ...addForm, sort_order: maxSort + 100 })
+    if (error) return alert("Error: " + error.message)
+    setAddForm(emptyForm); setAdding(false)
+    load()
+  }
+
+  // Edit
+  const saveEdit = async () => {
+    if (!editForm.account_name?.trim()) return alert("Page Name zaroori hai!")
+    const { error } = await supabase.from('master_accounts').update(editForm).eq('id', editId)
+    if (error) return alert("Error: " + error.message)
+    setEditId(null); setEditForm(null)
+    load()
+  }
+
+  // Delete
+  const deleteAccount = async (id, name) => {
+    if (!confirm(`"${name}" delete karna chahte ho?`)) return
+    await supabase.from('master_accounts').delete().eq('id', id)
+    setAccounts(a => a.filter(x => x.id !== id))
+  }
+
+  // Move up/down
+  const moveAccount = async (idx, dir) => {
+    const newAccs = [...accounts]
+    const swapIdx = idx + dir
+    if (swapIdx < 0 || swapIdx >= newAccs.length) return
+    const a = newAccs[idx], b = newAccs[swapIdx]
+    const tempSort = a.sort_order
+    await supabase.from('master_accounts').update({ sort_order: b.sort_order }).eq('id', a.id)
+    await supabase.from('master_accounts').update({ sort_order: tempSort }).eq('id', b.id)
+    load()
+  }
+
+  // Drag
+  const handleDragStart = (id) => setDragId(id)
+  const handleDrop = async (targetId) => {
+    if (!dragId || dragId === targetId) return
+    const from = accounts.find(a => a.id === dragId)
+    const to = accounts.find(a => a.id === targetId)
+    if (!from || !to) return
+    await supabase.from('master_accounts').update({ sort_order: to.sort_order }).eq('id', from.id)
+    await supabase.from('master_accounts').update({ sort_order: from.sort_order }).eq('id', to.id)
+    setDragId(null); load()
+  }
+
+  const inStyle = { border:`1px solid ${C.border}`, borderRadius:6, padding:"7px 10px", fontSize:12, boxSizing:"border-box", background:C.surface, color:C.text, width:"100%" }
+  const Badge = ({ id, color }) => {
+    const n = getMemberName(id); if (!n) return <span style={{ color:C.textLight }}>—</span>
+    const bg = color==="yellow"?C.warningLight:color==="purple"?C.purpleLight:color==="blue"?C.primaryLight:C.successLight
+    const cl = color==="yellow"?C.warning:color==="purple"?C.purple:color==="blue"?C.primary:C.success
+    return <span style={{ background:bg, color:cl, fontSize:10, padding:"2px 8px", borderRadius:10, fontWeight:600 }}>{n}</span>
   }
 
   if (loading) return <div style={{ padding:40, textAlign:"center", color:C.textMuted }}>Loading...</div>
 
   return (
     <div>
-      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:16, flexWrap:"wrap" }}>
+      {/* Header */}
+      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:16, flexWrap:"wrap" }}>
         <h2 style={{ color:C.text, fontSize:20, fontWeight:700 }}>📋 Master Sheet</h2>
         <span style={{ background:C.primaryLight, color:C.primary, fontSize:11, padding:"3px 10px", borderRadius:12, fontWeight:600 }}>{filtered.length} accounts</span>
-        {!isAdmin && !isTeamLead && <span style={{ background:C.warningLight, color:C.warning, fontSize:11, padding:"3px 10px", borderRadius:12, fontWeight:500 }}>👤 Your assigned accounts</span>}
-        {isAdmin && (
-          <button onClick={()=>setAdding(!adding)} style={{ marginLeft:"auto", background:adding?C.border:C.primary, border:"none", color:adding?C.text:"#fff", padding:"8px 18px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>
+        {isMember && <span style={{ background:C.warningLight, color:C.warning, fontSize:11, padding:"3px 10px", borderRadius:12 }}>👤 Aapke assigned accounts</span>}
+        {(isAdmin || isTeamLead) && (
+          <button onClick={()=>{setAdding(!adding); setAddForm(emptyForm)}} style={{ marginLeft:"auto", background:adding?C.dangerLight:C.primary, border:"none", color:adding?C.danger:"#fff", padding:"8px 18px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>
             {adding ? "✕ Cancel" : "+ Add Account"}
           </button>
         )}
       </div>
 
-      {adding && isAdmin && (
-        <div style={{ background:C.surface, border:`1px solid ${C.primary}`, borderRadius:12, padding:18, marginBottom:18 }}>
-          <p style={{ color:C.primary, fontSize:12, fontWeight:600, marginBottom:10 }}>📝 New Account</p>
+      {/* Add Form */}
+      {adding && (isAdmin || isTeamLead) && (
+        <div style={{ background:C.surface, border:`2px solid ${C.primary}`, borderRadius:12, padding:20, marginBottom:20 }}>
+          <p style={{ color:C.primary, fontSize:13, fontWeight:600, marginBottom:12 }}>➕ New Account</p>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:10 }}>
-            <input value={addForm.account_name} onChange={e=>setAddForm(f=>({...f,account_name:e.target.value}))} placeholder="Page Name *" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }} />
-            <input value={addForm.niche} onChange={e=>setAddForm(f=>({...f,niche:e.target.value}))} placeholder="Niche" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }} />
-            <input value={addForm.tiktok_link} onChange={e=>setAddForm(f=>({...f,tiktok_link:e.target.value}))} placeholder="TikTok Link" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }} />
+            <input value={addForm.account_name} onChange={e=>setAddForm(f=>({...f,account_name:e.target.value}))} placeholder="Page Name *" style={inStyle} />
+            <input value={addForm.niche} onChange={e=>setAddForm(f=>({...f,niche:e.target.value}))} placeholder="Niche" style={inStyle} />
+            <input value={addForm.tiktok_link} onChange={e=>setAddForm(f=>({...f,tiktok_link:e.target.value}))} placeholder="TikTok Link" style={inStyle} />
           </div>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:10 }}>
-            <input value={addForm.followers} onChange={e=>setAddForm(f=>({...f,followers:e.target.value}))} placeholder="Followers (e.g. 701k)" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }} />
-            <input value={addForm.avg_views} onChange={e=>setAddForm(f=>({...f,avg_views:e.target.value}))} placeholder="Avg Views (e.g. 100k)" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }} />
-            <select value={addForm.monetized} onChange={e=>setAddForm(f=>({...f,monetized:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }}>
+            <input value={addForm.followers} onChange={e=>setAddForm(f=>({...f,followers:e.target.value}))} placeholder="Followers" style={inStyle} />
+            <input value={addForm.avg_views} onChange={e=>setAddForm(f=>({...f,avg_views:e.target.value}))} placeholder="Avg Views" style={inStyle} />
+            <select value={addForm.monetized} onChange={e=>setAddForm(f=>({...f,monetized:e.target.value}))} style={inStyle}>
               <option value="No">Monetized: No</option>
               <option value="Yes">Monetized: Yes</option>
             </select>
-            <select value={addForm.category} onChange={e=>setAddForm(f=>({...f,category:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }}>
+            <select value={addForm.category} onChange={e=>setAddForm(f=>({...f,category:e.target.value}))} style={inStyle}>
               <option value="">-- Category --</option>
-              {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+              {categories.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}
             </select>
           </div>
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:8, marginBottom:10 }}>
-            <select value={addForm.team_id} onChange={e=>setAddForm(f=>({...f,team_id:e.target.value}))} style={{ border:`1px solid ${C.primary}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }}>
-              <option value="">-- Team * --</option>
-              {teams.map(t => <option key={t.id} value={t.id}>{t.group_type==='cgp'?'🚀':'👥'} {t.name}</option>)}
-            </select>
-            <input value={addForm.immediate_action} onChange={e=>setAddForm(f=>({...f,immediate_action:e.target.value}))} placeholder="Immediate Action" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }} />
-            <input value={addForm.targets} onChange={e=>setAddForm(f=>({...f,targets:e.target.value}))} placeholder="Targets" style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }} />
-            <div />
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:10 }}>
+            <input value={addForm.immediate_action} onChange={e=>setAddForm(f=>({...f,immediate_action:e.target.value}))} placeholder="Immediate Action" style={inStyle} />
+            <input value={addForm.targets} onChange={e=>setAddForm(f=>({...f,targets:e.target.value}))} placeholder="Targets" style={inStyle} />
           </div>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:14 }}>
-            <select value={addForm.assigned_to} onChange={e=>setAddForm(f=>({...f,assigned_to:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }}>
-              <option value="">-- Manager --</option>
-              {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            <select value={addForm.manager_id} onChange={e=>setAddForm(f=>({...f,manager_id:e.target.value}))} style={{ ...inStyle, border:`1px solid ${C.warning}` }}>
+              <option value="">-- Manager * --</option>
+              {members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
-            <select value={addForm.uploader} onChange={e=>setAddForm(f=>({...f,uploader:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }}>
+            <select value={addForm.uploader} onChange={e=>setAddForm(f=>({...f,uploader:e.target.value}))} style={inStyle}>
               <option value="">-- Uploader --</option>
-              {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              {members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
-            <select value={addForm.editor} onChange={e=>setAddForm(f=>({...f,editor:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", background:C.surface, color:C.text }}>
+            <select value={addForm.editor} onChange={e=>setAddForm(f=>({...f,editor:e.target.value}))} style={inStyle}>
               <option value="">-- Editor --</option>
-              {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              {members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           </div>
           <div style={{ display:"flex", gap:8 }}>
-            <button onClick={addAccount} style={{ background:C.success, border:"none", color:"#fff", padding:"9px 24px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>Save Account</button>
-            <button onClick={()=>{setAdding(false);setAddForm(emptyAdd)}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"9px 16px", borderRadius:8, fontSize:13, cursor:"pointer" }}>Cancel</button>
+            <button onClick={addAccount} style={{ background:C.success, border:"none", color:"#fff", padding:"9px 24px", borderRadius:8, fontSize:13, cursor:"pointer", fontWeight:600 }}>✓ Save Account</button>
+            <button onClick={()=>setAdding(false)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"9px 16px", borderRadius:8, fontSize:13, cursor:"pointer" }}>Cancel</button>
           </div>
         </div>
       )}
 
-      {(isAdmin || isTeamLead) && (
-        <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap", alignItems:"center" }}>
-          <select value={teamFilter} onChange={e=>setTeamFilter(e.target.value)} style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"7px 12px", fontSize:12, background:C.surface, color:C.text }}>
-            <option value="all">All Teams/CGPs</option>
-            {teams.map(t => <option key={t.id} value={t.id}>{t.group_type==='cgp'?'🚀':'👥'} {t.name}</option>)}
-          </select>
-          <select value={catFilter} onChange={e=>setCatFilter(e.target.value)} style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"7px 12px", fontSize:12, background:C.surface, color:C.text }}>
-            <option value="all">All Categories</option>
-            {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-          </select>
-          <select value={monFilter} onChange={e=>setMonFilter(e.target.value)} style={{ border:`1px solid ${C.border}`, borderRadius:8, padding:"7px 12px", fontSize:12, background:C.surface, color:C.text }}>
-            <option value="all">All Monetized</option>
-            <option value="Yes">✓ Yes</option>
-            <option value="No">✕ No</option>
-          </select>
-          <div style={{ marginLeft:"auto", display:"flex", gap:10, fontSize:11, color:C.textMuted }}>
-            {[["Gold","#f59e0b"],["Silver","#9ca3af"],["Fix","#f97316"],["Drop","#ef4444"],["Exp","#8b5cf6"]].map(([n,c])=>(
-              <span key={n} style={{ display:"flex", alignItems:"center", gap:4 }}><span style={{ width:8, height:8, borderRadius:"50%", background:c, display:"inline-block" }} />{n}</span>
-            ))}
-          </div>
+      {/* Search + Filters */}
+      <div style={{ display:"flex", gap:8, marginBottom:14, flexWrap:"wrap", alignItems:"center" }}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Search account or niche..." style={{ ...inStyle, width:220 }} />
+        <select value={catFilter} onChange={e=>setCatFilter(e.target.value)} style={{ ...inStyle, width:"auto" }}>
+          <option value="all">All Categories</option>
+          {categories.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}
+        </select>
+        <select value={monFilter} onChange={e=>setMonFilter(e.target.value)} style={{ ...inStyle, width:"auto" }}>
+          <option value="all">All Monetized</option>
+          <option value="Yes">✓ Yes</option>
+          <option value="No">✕ No</option>
+        </select>
+        <div style={{ marginLeft:"auto", display:"flex", gap:10, fontSize:11, color:C.textMuted }}>
+          {[["Gold","#f59e0b"],["Silver","#9ca3af"],["Fix","#f97316"],["Drop","#ef4444"],["Exp","#8b5cf6"]].map(([n,c])=>(
+            <span key={n} style={{ display:"flex", alignItems:"center", gap:3 }}><span style={{ width:7, height:7, borderRadius:"50%", background:c, display:"inline-block" }} />{n}</span>
+          ))}
         </div>
-      )}
+      </div>
 
+      {/* Table */}
       {filtered.length === 0 ? (
-        <div style={{ textAlign:"center", padding:40, background:C.surface, border:`1px dashed ${C.border}`, borderRadius:12 }}>
-          <p style={{ color:C.textMuted, fontSize:14 }}>
-            {!isAdmin && !isTeamLead ? "Aapko koi account assign nahi hai abhi." : "Koi account nahi mila."}
-          </p>
+        <div style={{ textAlign:"center", padding:48, background:C.surface, border:`1px dashed ${C.border}`, borderRadius:12 }}>
+          <p style={{ color:C.textMuted, fontSize:14 }}>{isMember ? "Aapko abhi koi account assign nahi hai." : "Koi account nahi mila."}</p>
         </div>
       ) : (
         <div style={{ overflowX:"auto", border:`1px solid ${C.border}`, borderRadius:10 }}>
-          <table style={{ borderCollapse:"collapse", width:"100%", fontSize:12, minWidth:isAdmin||isTeamLead?1100:700 }}>
+          <table style={{ borderCollapse:"collapse", width:"100%", fontSize:12, minWidth:1000 }}>
             <thead>
               <tr style={{ background:C.bg }}>
-                {["#","Team","Page Name","Niche","Followers","Avg Views","Monetized","Category","Action","Manager","Uploader","Editor","Targets", canEdit?"Edit":null].filter(h=>h!==null).map(h => (
-                  <th key={h} style={{ padding:"9px 8px", textAlign:"left", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10, textTransform:"uppercase", letterSpacing:0.3, whiteSpace:"nowrap" }}>{h}</th>
-                ))}
+                {(isAdmin||isTeamLead) && <th style={{ padding:"9px 6px", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10, textAlign:"center" }}>↕</th>}
+                <th style={{ padding:"9px 8px", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10 }}>#</th>
+                <th style={{ padding:"9px 8px", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10 }}>PAGE NAME</th>
+                <th style={{ padding:"9px 8px", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10 }}>NICHE</th>
+                <th style={{ padding:"9px 8px", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10 }}>FOLLOWERS</th>
+                <th style={{ padding:"9px 8px", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10 }}>AVG VIEWS</th>
+                <th style={{ padding:"9px 8px", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10, textAlign:"center" }}>MONETIZED</th>
+                <th style={{ padding:"9px 8px", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10 }}>CATEGORY</th>
+                <th style={{ padding:"9px 8px", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10 }}>ACTION</th>
+                <th style={{ padding:"9px 8px", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10 }}>MANAGER</th>
+                <th style={{ padding:"9px 8px", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10 }}>UPLOADER</th>
+                <th style={{ padding:"9px 8px", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10 }}>EDITOR</th>
+                <th style={{ padding:"9px 8px", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10 }}>TARGETS</th>
+                {(isAdmin||isTeamLead) && <th style={{ padding:"9px 8px", color:C.textMuted, fontWeight:600, borderBottom:`1px solid ${C.border}`, fontSize:10, textAlign:"center" }}>ACTIONS</th>}
               </tr>
             </thead>
             <tbody>
               {filtered.map((acc, idx) => editId === acc.id ? (
                 <tr key={acc.id} style={{ borderBottom:`1px solid ${C.border}`, background:C.primaryLight }}>
-                  <td style={{ padding:"6px 8px" }}>{idx+1}</td>
-                  <td style={{ padding:"4px" }}><span style={{ background:C.primaryLight, color:C.primary, fontSize:10, padding:"2px 8px", borderRadius:10 }}>{getTeamName(acc.team_id)}</span></td>
-                  <td style={{ padding:"4px" }}><input value={editForm.account_name||""} onChange={e=>setEditForm(f=>({...f,account_name:e.target.value}))} style={sty} /></td>
-                  <td style={{ padding:"4px" }}><input value={editForm.niche||""} onChange={e=>setEditForm(f=>({...f,niche:e.target.value}))} style={sty} /></td>
-                  <td style={{ padding:"4px" }}><input value={editForm.followers||""} onChange={e=>setEditForm(f=>({...f,followers:e.target.value}))} style={{...sty,width:65}} /></td>
-                  <td style={{ padding:"4px" }}><input value={editForm.avg_views||""} onChange={e=>setEditForm(f=>({...f,avg_views:e.target.value}))} style={{...sty,width:65}} /></td>
-                  <td style={{ padding:"4px" }}><select value={editForm.monetized||"No"} onChange={e=>setEditForm(f=>({...f,monetized:e.target.value}))} style={sty}><option value="No">No</option><option value="Yes">Yes</option></select></td>
-                  <td style={{ padding:"4px" }}><select value={editForm.category||""} onChange={e=>setEditForm(f=>({...f,category:e.target.value}))} style={sty}><option value="">—</option>{categories.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}</select></td>
-                  <td style={{ padding:"4px" }}><input value={editForm.immediate_action||""} onChange={e=>setEditForm(f=>({...f,immediate_action:e.target.value}))} style={{...sty,width:100}} /></td>
-                  <td style={{ padding:"4px" }}><select value={editForm.assigned_to||""} onChange={e=>setEditForm(f=>({...f,assigned_to:e.target.value}))} style={sty}><option value="">—</option>{members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></td>
-                  <td style={{ padding:"4px" }}><select value={editForm.uploader||""} onChange={e=>setEditForm(f=>({...f,uploader:e.target.value}))} style={sty}><option value="">—</option>{members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></td>
-                  <td style={{ padding:"4px" }}><select value={editForm.editor||""} onChange={e=>setEditForm(f=>({...f,editor:e.target.value}))} style={sty}><option value="">—</option>{members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></td>
-                  <td style={{ padding:"4px" }}><input value={editForm.targets||""} onChange={e=>setEditForm(f=>({...f,targets:e.target.value}))} style={{...sty,width:80}} /></td>
-                  <td style={{ padding:"6px", textAlign:"center" }}>
-                    <button onClick={saveEdit} style={{ background:C.success, border:"none", color:"#fff", fontSize:10, padding:"4px 8px", borderRadius:4, cursor:"pointer", marginRight:3 }}>Save</button>
-                    <button onClick={()=>{setEditId(null);setEditForm(null)}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, fontSize:10, padding:"4px 8px", borderRadius:4, cursor:"pointer" }}>✕</button>
+                  {(isAdmin||isTeamLead) && <td style={{ padding:"4px 6px" }} />}
+                  <td style={{ padding:"4px 8px", color:C.textMuted }}>{idx+1}</td>
+                  <td style={{ padding:"4px" }}><input value={editForm.account_name||""} onChange={e=>setEditForm(f=>({...f,account_name:e.target.value}))} style={inStyle} /></td>
+                  <td style={{ padding:"4px" }}><input value={editForm.niche||""} onChange={e=>setEditForm(f=>({...f,niche:e.target.value}))} style={inStyle} /></td>
+                  <td style={{ padding:"4px" }}><input value={editForm.followers||""} onChange={e=>setEditForm(f=>({...f,followers:e.target.value}))} style={{...inStyle,width:70}} /></td>
+                  <td style={{ padding:"4px" }}><input value={editForm.avg_views||""} onChange={e=>setEditForm(f=>({...f,avg_views:e.target.value}))} style={{...inStyle,width:70}} /></td>
+                  <td style={{ padding:"4px" }}><select value={editForm.monetized||"No"} onChange={e=>setEditForm(f=>({...f,monetized:e.target.value}))} style={inStyle}><option value="No">No</option><option value="Yes">Yes</option></select></td>
+                  <td style={{ padding:"4px" }}><select value={editForm.category||""} onChange={e=>setEditForm(f=>({...f,category:e.target.value}))} style={inStyle}><option value="">—</option>{categories.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}</select></td>
+                  <td style={{ padding:"4px" }}><input value={editForm.immediate_action||""} onChange={e=>setEditForm(f=>({...f,immediate_action:e.target.value}))} style={{...inStyle,width:100}} /></td>
+                  <td style={{ padding:"4px" }}><select value={editForm.manager_id||""} onChange={e=>setEditForm(f=>({...f,manager_id:e.target.value}))} style={inStyle}><option value="">—</option>{members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></td>
+                  <td style={{ padding:"4px" }}><select value={editForm.uploader||""} onChange={e=>setEditForm(f=>({...f,uploader:e.target.value}))} style={inStyle}><option value="">—</option>{members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></td>
+                  <td style={{ padding:"4px" }}><select value={editForm.editor||""} onChange={e=>setEditForm(f=>({...f,editor:e.target.value}))} style={inStyle}><option value="">—</option>{members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></td>
+                  <td style={{ padding:"4px" }}><input value={editForm.targets||""} onChange={e=>setEditForm(f=>({...f,targets:e.target.value}))} style={{...inStyle,width:80}} /></td>
+                  <td style={{ padding:"4px", textAlign:"center" }}>
+                    <button onClick={saveEdit} style={{ background:C.success, border:"none", color:"#fff", fontSize:10, padding:"5px 10px", borderRadius:4, cursor:"pointer", marginRight:3, fontWeight:600 }}>Save</button>
+                    <button onClick={()=>{setEditId(null);setEditForm(null)}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, fontSize:10, padding:"5px 8px", borderRadius:4, cursor:"pointer" }}>✕</button>
                   </td>
                 </tr>
               ) : (
-                <tr key={acc.id} style={{ borderBottom:`1px solid ${C.border}` }}>
+                <tr key={acc.id}
+                  draggable={isAdmin||isTeamLead}
+                  onDragStart={()=>handleDragStart(acc.id)}
+                  onDragOver={e=>e.preventDefault()}
+                  onDrop={()=>handleDrop(acc.id)}
+                  style={{ borderBottom:`1px solid ${C.border}`, opacity:dragId===acc.id?0.4:1, cursor:(isAdmin||isTeamLead)?"grab":"default" }}>
+                  {(isAdmin||isTeamLead) && (
+                    <td style={{ padding:"8px 6px", textAlign:"center" }}>
+                      <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
+                        <button onClick={()=>moveAccount(accounts.indexOf(acc),-1)} style={{ background:"transparent", border:"none", color:C.textLight, cursor:"pointer", fontSize:10, padding:"1px 4px", lineHeight:1 }}>▲</button>
+                        <button onClick={()=>moveAccount(accounts.indexOf(acc),1)} style={{ background:"transparent", border:"none", color:C.textLight, cursor:"pointer", fontSize:10, padding:"1px 4px", lineHeight:1 }}>▼</button>
+                      </div>
+                    </td>
+                  )}
                   <td style={{ padding:"8px", color:C.textMuted }}>{idx+1}</td>
-                  <td style={{ padding:"8px" }}><span style={{ background:C.primaryLight, color:C.primary, fontSize:10, padding:"2px 8px", borderRadius:10, fontWeight:500 }}>{getTeamName(acc.team_id)}</span></td>
-                  <td style={{ padding:"8px", fontWeight:500 }}>{acc.tiktok_link ? <a href={acc.tiktok_link} target="_blank" rel="noopener noreferrer" style={{ color:C.primary, textDecoration:"none" }}>{acc.account_name}</a> : <span style={{ color:C.text }}>{acc.account_name}</span>}</td>
+                  <td style={{ padding:"8px", fontWeight:500 }}>
+                    {acc.tiktok_link
+                      ? <a href={acc.tiktok_link} target="_blank" rel="noopener noreferrer" style={{ color:C.primary, textDecoration:"none" }}>{acc.account_name}</a>
+                      : <span style={{ color:C.text }}>{acc.account_name}</span>}
+                  </td>
                   <td style={{ padding:"8px", color:C.textMuted, fontSize:11 }}>{acc.niche||"—"}</td>
                   <td style={{ padding:"8px", fontSize:11 }}>{acc.followers||"—"}</td>
                   <td style={{ padding:"8px", fontSize:11 }}>{acc.avg_views||"—"}</td>
-                  <td style={{ padding:"8px" }}>{(acc.monetized||"No")==="Yes" ? <span style={{ color:C.success, fontWeight:600, fontSize:11 }}>✓ Yes</span> : <span style={{ color:C.danger, fontWeight:600, fontSize:11 }}>✕ No</span>}</td>
-                  <td style={{ padding:"8px" }}>{acc.category ? <span style={{ background:catColor(acc.category)+"22", color:catColor(acc.category), fontSize:10, padding:"2px 8px", borderRadius:10, fontWeight:600 }}>{acc.category}</span> : "—"}</td>
-                  <td style={{ padding:"8px", fontSize:11, color:C.textMuted, maxWidth:110, overflow:"hidden", textOverflow:"ellipsis" }}>{acc.immediate_action||"—"}</td>
-                  <td style={{ padding:"8px" }}><PersonBadge id={acc.assigned_to} color="yellow" /></td>
-                  <td style={{ padding:"8px" }}><PersonBadge id={acc.uploader} color="blue" /></td>
-                  <td style={{ padding:"8px" }}><PersonBadge id={acc.editor} color="purple" /></td>
+                  <td style={{ padding:"8px", textAlign:"center" }}>
+                    {(acc.monetized||"No")==="Yes"
+                      ? <span style={{ color:C.success, fontWeight:600, fontSize:11 }}>✓ Yes</span>
+                      : <span style={{ color:C.danger, fontWeight:600, fontSize:11 }}>✕ No</span>}
+                  </td>
+                  <td style={{ padding:"8px" }}>
+                    {acc.category ? <span style={{ background:catColor(acc.category)+"22", color:catColor(acc.category), fontSize:10, padding:"2px 8px", borderRadius:10, fontWeight:600 }}>{acc.category}</span> : "—"}
+                  </td>
+                  <td style={{ padding:"8px", fontSize:11, color:C.textMuted, maxWidth:120, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{acc.immediate_action||"—"}</td>
+                  <td style={{ padding:"8px" }}><Badge id={acc.manager_id} color="yellow" /></td>
+                  <td style={{ padding:"8px" }}><Badge id={acc.uploader} color="blue" /></td>
+                  <td style={{ padding:"8px" }}><Badge id={acc.editor} color="purple" /></td>
                   <td style={{ padding:"8px", fontSize:11, color:C.textMuted }}>{acc.targets||"—"}</td>
-                  {canEdit && (
-                    <td style={{ padding:"8px", textAlign:"center" }}>
-                      <button onClick={()=>{setEditId(acc.id); setEditForm({account_name:acc.account_name, niche:acc.niche||"", category:acc.category||"", assigned_to:acc.assigned_to||"", followers:acc.followers||"", avg_views:acc.avg_views||"", monetized:acc.monetized||"No", immediate_action:acc.immediate_action||"", uploader:acc.uploader||"", editor:acc.editor||"", targets:acc.targets||""})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:10, padding:"4px 8px", borderRadius:4, cursor:"pointer", fontWeight:600, marginRight:4 }}>Edit</button>
-                      {isAdmin && <button onClick={()=>deleteAccount(acc.id, acc.account_name)} style={{ background:"transparent", border:`1px solid ${C.danger}`, color:C.danger, fontSize:10, padding:"4px 8px", borderRadius:4, cursor:"pointer", fontWeight:600 }}>✕ Remove</button>}
+                  {(isAdmin||isTeamLead) && (
+                    <td style={{ padding:"8px", textAlign:"center", whiteSpace:"nowrap" }}>
+                      <button onClick={()=>{setEditId(acc.id); setEditForm({account_name:acc.account_name, niche:acc.niche||"", tiktok_link:acc.tiktok_link||"", followers:acc.followers||"", avg_views:acc.avg_views||"", monetized:acc.monetized||"No", category:acc.category||"", immediate_action:acc.immediate_action||"", manager_id:acc.manager_id||"", uploader:acc.uploader||"", editor:acc.editor||"", targets:acc.targets||""})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:10, padding:"4px 8px", borderRadius:4, cursor:"pointer", fontWeight:600, marginRight:3 }}>Edit</button>
+                      {isAdmin && <button onClick={()=>deleteAccount(acc.id, acc.account_name)} style={{ background:"transparent", border:`1px solid ${C.danger}`, color:C.danger, fontSize:10, padding:"4px 8px", borderRadius:4, cursor:"pointer", fontWeight:600 }}>✕</button>}
                     </td>
                   )}
                 </tr>
@@ -1677,9 +1714,7 @@ function MasterSheet({ currentUser }) {
           </table>
         </div>
       )}
-      <div style={{ padding:"10px 0", fontSize:11, color:C.textMuted }}>
-        {filtered.length} accounts {teamFilter !== "all" && `· ${getTeamName(teamFilter)}`}
-      </div>
+      <div style={{ padding:"8px 0", fontSize:11, color:C.textMuted }}>{filtered.length} of {visibleAccounts.length} accounts</div>
     </div>
   )
 }
