@@ -5,7 +5,7 @@ import { supabase } from './supabase'
 const TZ = 'Asia/Karachi'
 
 const today = () => {
-  // Get date in Pakistan timezone as YYYY-MM-DDa
+  // Get date in Pakistan timezone as YYYY-MM-DD
   const d = new Date()
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year:'numeric', month:'2-digit', day:'2-digit' }).format(d)
   return parts // en-CA gives YYYY-MM-DD
@@ -2594,21 +2594,39 @@ function MemberDashboard({ user, onLogout }) {
 
   const refresh = useCallback(async () => {
     const cgpIds = user.cgpIds || (user.cgpId ? [user.cgpId] : [])
-    const [{ data:tasks }, { data:att }, { data:reps }, { data:stats }, { data:rc }, teamRes, tmRes, cgpsRes, cgpMembersRes] = await Promise.all([
+    const teamIds = user.teamIds || (user.teamId ? [user.teamId] : [])
+    const [{ data:tasks }, { data:att }, { data:reps }, { data:stats }, { data:rc }, teamsRes, allMembersRes, cgpsRes, cgpMembersRes, teamLeadOfRes] = await Promise.all([
       supabase.from('tasks').select('*').eq('assigned_to', user.id).order('created_at'),
       supabase.from('attendance').select('*').eq('member_id', user.id),
       supabase.from('reports').select('*').eq('member_id', user.id),
       supabase.from('member_stats').select('*').eq('member_id', user.id).maybeSingle(),
       supabase.from('report_comments').select('*').eq('report_member_id', user.id).order('created_at'),
-      user.teamId ? supabase.from('teams').select('*').eq('id', user.teamId).maybeSingle() : Promise.resolve({data:null}),
-      user.teamId ? supabase.from('members').select('*').eq('team_id', user.teamId) : Promise.resolve({data:[]}),
+      teamIds.length ? supabase.from('teams').select('*').in('id', teamIds) : Promise.resolve({data:[]}),
+      teamIds.length ? supabase.from('members').select('*').eq('is_admin', false) : Promise.resolve({data:[]}),
       cgpIds.length ? supabase.from('teams').select('*').in('id', cgpIds) : Promise.resolve({data:[]}),
       cgpIds.length ? supabase.from('members').select('*').or(cgpIds.map(id=>`cgp_id.eq.${id},cgp_id_2.eq.${id},cgp_id_3.eq.${id}`).join(',')) : Promise.resolve({data:[]}),
+      supabase.from('teams').select('id').eq('team_lead_id', user.id),
     ])
     const attMap = {}; (att||[]).forEach(a=>{ attMap[a.date]={checkIn:a.check_in,checkOut:a.check_out,status:a.status} })
     const repMap = {}; (reps||[]).forEach(r=>{ repMap[r.date]={tasksCompleted:r.tasks_completed,hoursWorked:r.hours_worked,blockers:r.blockers,notes:r.notes} })
     const rcMap = {}; (rc||[]).forEach(c=>{ if(!rcMap[c.report_date]) rcMap[c.report_date]=[]; rcMap[c.report_date].push({author:c.author, text:c.text}) })
-    // Map cgpId -> list of members in that CGP
+    
+    // Teams I lead (by team_lead_id)
+    const leadOfTeamIds = new Set((teamLeadOfRes.data||[]).map(t => t.id))
+    
+    // Build teams data with lead status
+    const teamsOrdered = teamIds.map(id => {
+      const t = (teamsRes.data||[]).find(x => x.id === id)
+      if (!t) return null
+      const isLeadHere = leadOfTeamIds.has(id)
+      // Members of this team
+      const teamMems = (allMembersRes.data||[]).filter(m => 
+        m.team_id === id || m.team_id_2 === id || m.team_id_3 === id
+      )
+      return { ...t, isLeadHere, members: teamMems }
+    }).filter(Boolean)
+
+    // CGP map
     const cgpMembersMap = {}
     ;(cgpMembersRes.data||[]).forEach(m => {
       cgpIds.forEach(id => {
@@ -2618,11 +2636,19 @@ function MemberDashboard({ user, onLogout }) {
         }
       })
     })
-    // Order CGPs to match cgpIds order
     const cgpsOrdered = cgpIds.map(id => (cgpsRes.data||[]).find(x=>x.id===id)).filter(Boolean)
-    setData({ tasks:tasks||[], attendance:attMap, reports:repMap, stats:stats?{lateCount:stats.late_count, strikes:stats.strikes}:{lateCount:0,strikes:0}, reportComments:rcMap, team:teamRes.data, teamMembers:tmRes.data||[], cgps:cgpsOrdered, cgpMembersMap })
+    
+    setData({ 
+      tasks:tasks||[], attendance:attMap, reports:repMap, 
+      stats:stats?{lateCount:stats.late_count, strikes:stats.strikes}:{lateCount:0,strikes:0}, 
+      reportComments:rcMap, 
+      teams:teamsOrdered,
+      // keep backward compat
+      team: teamsOrdered[0] || null, teamMembers: teamsOrdered[0]?.members || [],
+      cgps:cgpsOrdered, cgpMembersMap 
+    })
     setLoading(false)
-  }, [user.id, user.teamId, JSON.stringify(user.cgpIds||[])])
+  }, [user.id, JSON.stringify(user.teamIds||[]), JSON.stringify(user.cgpIds||[])])
 
   useEffect(() => { refresh() }, [refresh])
 
@@ -2630,6 +2656,7 @@ function MemberDashboard({ user, onLogout }) {
 
   const cgps = data.cgps || []
 
+  const myTeams = data.teams || []
   const tabs = [
     { id:"home", label:"Home", icon:"🏠" },
     { section:"Work" },
@@ -2637,9 +2664,10 @@ function MemberDashboard({ user, onLogout }) {
     { id:"tasks", label:"My Tasks", icon:"✅" },
     { id:"report", label:"Daily Report", icon:"📋" },
   ]
-  if (user.teamId) tabs.push({ section:"Groups" })
-  if (user.teamId) tabs.push({ id:"team", label:"My Team", icon:"👥" })
-  cgps.forEach((c, i) => tabs.push({ id:"cgp_"+i, label: c.name || (i===0 ? "My CGP" : "CGP "+(i+1)), icon:"🚀" }))
+  if (myTeams.length > 0) tabs.push({ section:"My Teams" })
+  myTeams.forEach((t, i) => tabs.push({ id:"team_"+i, label: t.name, icon: t.isLeadHere ? "👑" : "👥" }))
+  if (cgps.length > 0) tabs.push({ section:"My CGPs" })
+  cgps.forEach((c, i) => tabs.push({ id:"cgp_"+i, label: c.name || "CGP "+(i+1), icon:"🚀" }))
   tabs.push({ section:"Ideas" })
   tabs.push({ id:"niche", label:"Niche Ideas", icon:"💡" })
   tabs.push({ id:"voiceover", label:"Voiceover Ideas", icon:"🎙️" })
@@ -2651,8 +2679,10 @@ function MemberDashboard({ user, onLogout }) {
         {tab==="mastersheet" && <MasterSheet currentUser={user} />}
         {tab==="tasks" && <MemberTasks data={data} refresh={refresh} />}
         {tab==="report" && <MemberReport data={data} user={user} refresh={refresh} />}
-        {tab==="team" && <MemberGroupView group={data.team} groupMembers={data.teamMembers} groupMode="team" user={user} />}
-        {cgps.map((c, i) => tab==="cgp_"+i && <MemberGroupView key={c.id} group={c} groupMembers={(data.cgpMembersMap||{})[c.id]||[]} groupMode="cgp" user={user} />)}
+        {myTeams.map((t, i) => tab==="team_"+i && (
+          <MemberGroupView key={t.id} group={t} groupMembers={t.members||[]} groupMode="team" user={user} isLeader={t.isLeadHere} />
+        ))}
+        {cgps.map((c, i) => tab==="cgp_"+i && <MemberGroupView key={c.id} group={c} groupMembers={(data.cgpMembersMap||{})[c.id]||[]} groupMode="cgp" user={user} isLeader={false} />)}
         {tab==="niche" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>💡 Niche Ideas</h2><IdeasBoard user={user} table="niche_ideas" title="Niche Ideas Board" emoji="💡" /></div>}
         {tab==="voiceover" && <div><h2 style={{ color:C.text, fontSize:20, fontWeight:700, marginBottom:16 }}>🎙️ Voiceover Ideas</h2><IdeasBoard user={user} table="voiceover_ideas" title="Voiceover Ideas Board" emoji="🎙️" /></div>}
       </div>
@@ -3025,13 +3055,17 @@ function MemberReport({ data, user, refresh }) {
   )
 }
 
-function MemberGroupView({ group, groupMembers, groupMode, user }) {
+function MemberGroupView({ group, groupMembers, groupMode, user, isLeader }) {
   const C = useC()
   if (!group) return <p style={{ color:C.textMuted, fontSize:14 }}>Aap kisi {groupMode==='cgp'?'CGP':'team'} mein nahi hain.</p>
-  const emoji = groupMode==='cgp' ? '🚀' : '👥'
+  const emoji = groupMode==='cgp' ? '🚀' : (isLeader ? '👑' : '👥')
   return (
     <div>
-      <h2 style={{ color:C.text, fontSize:22, fontWeight:700 }}>{emoji} {group.name}</h2>
+      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:4 }}>
+        <h2 style={{ color:C.text, fontSize:22, fontWeight:700 }}>{emoji} {group.name}</h2>
+        {isLeader && <span style={{ background:C.warningLight, color:C.warning, fontSize:11, padding:"3px 10px", borderRadius:12, fontWeight:600 }}>You are Team Lead</span>}
+        {!isLeader && groupMode==='team' && <span style={{ background:C.primaryLight, color:C.primary, fontSize:11, padding:"3px 10px", borderRadius:12, fontWeight:500 }}>Team Member</span>}
+      </div>
       <p style={{ color:C.textMuted, fontSize:13, marginBottom:20 }}>{group.description || "—"}</p>
       
       <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginBottom:10 }}>Members</h3>
@@ -3040,23 +3074,26 @@ function MemberGroupView({ group, groupMembers, groupMode, user }) {
           <div key={m.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ width:32, height:32, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
             <div style={{ flex:1 }}>
-              <p style={{ color:C.text, fontSize:13, fontWeight:600 }}>{m.name}</p>
+              <p style={{ color:C.text, fontSize:13, fontWeight:600 }}>{m.name} {group.team_lead_id === m.id && <span style={{ background:C.warningLight, color:C.warning, fontSize:10, padding:"1px 6px", borderRadius:4, marginLeft:4 }}>👑 Lead</span>}</p>
               <p style={{ color:C.textMuted, fontSize:11 }}>{m.role} · 🕐 {to12(m.checkin_time)} → {to12(m.end_time||"18:00")}</p>
             </div>
           </div>
         ))}
       </div>
 
-      <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginBottom:10 }}>📊 Aapke Assigned Accounts</h3>
-      <p style={{ color:C.textMuted, fontSize:12, marginBottom:10 }}>💡 Sirf wo accounts dikh rahe hain jo Team Lead ne aapko assign kiye. Status toggle kar sakte hain.</p>
-      <TikTokSheet teamId={group.id} canEdit={false} filterByUserId={user.id} userName={user.name} />
+      <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginBottom:6 }}>📊 {isLeader ? "All Team Accounts" : "Aapke Assigned Accounts"}</h3>
+      {!isLeader && <p style={{ color:C.textMuted, fontSize:12, marginBottom:10 }}>💡 Sirf wo accounts dikh rahe hain jo Team Lead ne aapko assign kiye hain.</p>}
+      {isLeader && <p style={{ color:C.textMuted, fontSize:12, marginBottom:10 }}>💡 Aap is team ke saare accounts dekh sakte hain.</p>}
+      <TikTokSheet teamId={group.id} canEdit={false} filterByUserId={isLeader ? null : user.id} userName={user.name} />
 
       <h3 style={{ color:C.text, fontSize:15, fontWeight:600, marginTop:28, marginBottom:10 }}>🔗 Links</h3>
       <TeamLinks teamId={group.id} canEdit={false} />
 
-      <div style={{ marginTop:28, background:C.warningLight, border:`1px solid ${C.warning}`, borderRadius:10, padding:"12px 16px", fontSize:12, color:C.warning }}>
-        🔒 <strong>Gmail + Login Password</strong> vault sirf Team Lead aur Super Admin dekh sakte hain. Zaroorat ho to un se contact karein.
-      </div>
+      {!isLeader && (
+        <div style={{ marginTop:28, background:C.warningLight, border:`1px solid ${C.warning}`, borderRadius:10, padding:"12px 16px", fontSize:12, color:C.warning }}>
+          🔒 <strong>Gmail + Login Password</strong> vault sirf Team Lead aur Super Admin dekh sakte hain.
+        </div>
+      )}
     </div>
   )
 }
