@@ -951,13 +951,22 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
   const [existingSelect, setExistingSelect] = useState("")
   const [newForm, setNewForm] = useState(emptyMemberForm())
   const [credShow, setCredShow] = useState(null)
+  const [teamMemberIds, setTeamMemberIds] = useState([])
 
-  // Helper: check if member belongs to this group
-  const memberInGroup = (m) => isCGP
-    ? (m.cgp_id === groupId || m.cgp_id_2 === groupId || m.cgp_id_3 === groupId)
-    : (m.team_id === groupId)
+  // For Teams: load from team_members junction table
+  useEffect(() => {
+    if (!isCGP) {
+      supabase.from('team_members').select('member_id').eq('team_id', groupId)
+        .then(({ data }) => setTeamMemberIds((data||[]).map(x => x.member_id)))
+    }
+  }, [groupId, isCGP])
 
-  // Find first empty CGP slot on a member
+  // Check membership
+  const memberInGroup = (m) => {
+    if (isCGP) return m.cgp_id === groupId || m.cgp_id_2 === groupId || m.cgp_id_3 === groupId
+    return teamMemberIds.includes(m.id)
+  }
+
   const findEmptyCgpSlot = (m) => {
     if (!m.cgp_id) return 'cgp_id'
     if (!m.cgp_id_2) return 'cgp_id_2'
@@ -966,6 +975,8 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
   }
 
   const groupMembers = allMembers.filter(memberInGroup)
+  // For teams: ALL non-admin members available (even if in another team)
+  // For CGPs: only those not already in this CGP
   const availableMembers = allMembers.filter(m => !memberInGroup(m) && !m.is_admin)
 
   const addExisting = async () => {
@@ -976,7 +987,16 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
       if (!slot) return alert("Yeh member already 3 CGPs mein hai (max limit)!")
       await supabase.from('members').update({ [slot]: groupId }).eq('id', existingSelect)
     } else {
-      await supabase.from('members').update({ team_id: groupId }).eq('id', existingSelect)
+      // Use team_members junction table
+      const { error } = await supabase.from('team_members').insert({
+        id: 'tm_' + Date.now(),
+        team_id: groupId,
+        member_id: existingSelect
+      })
+      if (error && error.code !== '23505') return alert("Error: " + error.message)
+      // Reload team member IDs
+      const { data } = await supabase.from('team_members').select('member_id').eq('team_id', groupId)
+      setTeamMemberIds((data||[]).map(x => x.member_id))
     }
     setExistingSelect(""); setAddMode(null)
     refresh()
@@ -987,18 +1007,24 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
     const password = newForm.password || genPassword()
     const id = "m"+Date.now()
     const avatar = newForm.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()
-    const groupField = isCGP ? 'cgp_id' : 'team_id'
     const insertData = {
       id, name:newForm.name, email:newForm.email.toLowerCase(), password,
       role:newForm.role, checkin_time:newForm.checkin_time,
       end_time:newForm.end_time, grace_minutes:newForm.grace_minutes,
       job_description:newForm.job_description||null,
       avatar, is_admin:false, is_team_lead:false,
-      [groupField]: groupId
+      team_id: isCGP ? null : groupId,
+      cgp_id: isCGP ? groupId : null
     }
     const { error } = await supabase.from('members').insert(insertData)
     if (error) return alert("Error: " + error.message)
     await supabase.from('member_stats').insert({ member_id:id, late_count:0, strikes:0 })
+    // Also add to team_members if team
+    if (!isCGP) {
+      await supabase.from('team_members').insert({ id:'tm_'+Date.now(), team_id:groupId, member_id:id })
+      const { data } = await supabase.from('team_members').select('member_id').eq('team_id', groupId)
+      setTeamMemberIds((data||[]).map(x => x.member_id))
+    }
     setCredShow({ email:newForm.email, password, name:newForm.name })
     setNewForm(emptyMemberForm())
     setAddMode(null)
@@ -1007,17 +1033,19 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
 
   const removeFromGroup = async (memberId) => {
     if (!confirm(`${isCGP ? 'CGP' : 'Team'} se remove karein?`)) return
-    const member = allMembers.find(m => m.id === memberId)
-    let updateData = {}
     if (isCGP) {
-      // Find which slot matches this groupId and clear it
+      const member = allMembers.find(m => m.id === memberId)
+      let updateData = {}
       if (member.cgp_id === groupId) updateData.cgp_id = null
       else if (member.cgp_id_2 === groupId) updateData.cgp_id_2 = null
       else if (member.cgp_id_3 === groupId) updateData.cgp_id_3 = null
+      await supabase.from('members').update(updateData).eq('id', memberId)
     } else {
-      updateData = { team_id: null, is_team_lead: false }
+      // Remove from junction table only — does NOT affect other teams
+      await supabase.from('team_members').delete()
+        .eq('team_id', groupId).eq('member_id', memberId)
+      setTeamMemberIds(ids => ids.filter(id => id !== memberId))
     }
-    await supabase.from('members').update(updateData).eq('id', memberId)
     refresh()
   }
 
@@ -1047,14 +1075,23 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
 
       {addMode === 'existing' && (
         <div style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:14, marginBottom:12 }}>
-          {availableMembers.length === 0 ? (
+          {allMembers.filter(m => !m.is_admin && !memberInGroup(m)).length === 0 ? (
             <p style={{ color:C.textMuted, fontSize:12 }}>Koi available member nahi hai.</p>
           ) : (
             <>
               <select value={existingSelect} onChange={e=>setExistingSelect(e.target.value)} style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box", marginBottom:10 }}>
                 <option value="">-- Select Member --</option>
-                {availableMembers.map(m => <option key={m.id} value={m.id}>{m.name} ({m.role})</option>)}
+                {allMembers.filter(m => !m.is_admin && !memberInGroup(m)).map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} ({m.role}){m.team_id && !isCGP ? ' — already in another team' : ''}
+                  </option>
+                ))}
               </select>
+              {!isCGP && existingSelect && allMembers.find(x=>x.id===existingSelect)?.team_id && (
+                <p style={{ color:C.warning, fontSize:11, marginBottom:8 }}>
+                  ⚠️ Yeh member pehle se ek team mein hai — dono teams mein rahega, koi remove nahi hoga.
+                </p>
+              )}
               <button onClick={addExisting} style={{ background:C.primary, border:"none", color:"#fff", padding:"7px 16px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>Add to {groupMode==='cgp'?'CGP':'Team'}</button>
             </>
           )}
@@ -1437,6 +1474,7 @@ function MasterSheet({ currentUser }) {
   const [search, setSearch] = useState("")
   const [catFilter, setCatFilter] = useState("all")
   const [monFilter, setMonFilter] = useState("all")
+  const [managerFilter, setManagerFilter] = useState("all")
   const [adding, setAdding] = useState(false)
   const [editId, setEditId] = useState(null)
   const [editForm, setEditForm] = useState(null)
@@ -1472,6 +1510,7 @@ function MasterSheet({ currentUser }) {
     if (search && !a.account_name?.toLowerCase().includes(search.toLowerCase()) && !a.niche?.toLowerCase().includes(search.toLowerCase())) return false
     if (catFilter !== "all" && a.category !== catFilter) return false
     if (monFilter !== "all" && (a.monetized||"No") !== monFilter) return false
+    if (managerFilter !== "all" && a.manager_id !== managerFilter) return false
     return true
   })
 
@@ -1611,6 +1650,12 @@ function MasterSheet({ currentUser }) {
           <option value="Yes">✓ Yes</option>
           <option value="No">✕ No</option>
         </select>
+        {(isAdmin || isTeamLead) && (
+          <select value={managerFilter} onChange={e=>setManagerFilter(e.target.value)} style={{ ...inStyle, width:"auto" }}>
+            <option value="all">All Managers</option>
+            {members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        )}
         <div style={{ marginLeft:"auto", display:"flex", gap:10, fontSize:11, color:C.textMuted }}>
           {[["Gold","#f59e0b"],["Silver","#9ca3af"],["Fix","#f97316"],["Drop","#ef4444"],["Exp","#8b5cf6"]].map(([n,c])=>(
             <span key={n} style={{ display:"flex", alignItems:"center", gap:3 }}><span style={{ width:7, height:7, borderRadius:"50%", background:c, display:"inline-block" }} />{n}</span>
