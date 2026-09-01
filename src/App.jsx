@@ -166,6 +166,7 @@ export default function App() {
       teamId: data.team_id,
       cgpId: data.cgp_id,
       cgpIds: [data.cgp_id, data.cgp_id_2, data.cgp_id_3].filter(Boolean),
+      teamIds: [data.team_id, data.team_id_2, data.team_id_3].filter(Boolean),
       leadOfIds: (leadOf || []).map(x => x.id)
     }
     localStorage.setItem("teamhub-user", JSON.stringify(userData))
@@ -248,7 +249,6 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName }) {
       supabase.from('members').select('*').eq('is_admin', false),
       supabase.from('teams').select('id, name, group_type'),
       supabase.from('account_comments').select('*').order('created_at'),
-      supabase.from('team_members').select('member_id').eq('team_id', teamId),
     ])
     setAccounts(accs || [])
     setCategories(cats || [])
@@ -256,11 +256,10 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName }) {
     const currentGroup = teamsMap[teamId]
     const isCurrentCGP = currentGroup?.group_type === 'cgp'
 
-    // For CGP: use cgp_id fields. For Team: use team_members junction table
-    const teamMemberIds = new Set((teamMems||[]).map(x => x.member_id))
+    // CGP: use cgp_id fields. Team: use team_id, team_id_2, team_id_3 (same as CGP pattern)
     const memberList = (allMembers||[]).filter(m => isCurrentCGP
       ? (m.cgp_id === teamId || m.cgp_id_2 === teamId || m.cgp_id_3 === teamId)
-      : teamMemberIds.has(m.id) || m.team_id === teamId  // support both old + new
+      : (m.team_id === teamId || m.team_id_2 === teamId || m.team_id_3 === teamId)
     )
     const annotated = memberList.map(m => ({ ...m, label: m.name, inThisGroup: true }))
     setGroupMembers(annotated)
@@ -771,8 +770,20 @@ function MemberFormFields({ form, setForm, showTeam=false, showCgp=false, teamGr
       {(showTeam || showCgp) && (
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
           {showTeam && (
-            <select value={form.team_id} onChange={e=>setForm(f=>({...f,team_id:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
-              <option value="">-- No Team --</option>
+            <select value={form.team_id||""} onChange={e=>setForm(f=>({...f,team_id:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
+              <option value="">-- No Team #1 --</option>
+              {teamGroups.map(t => <option key={t.id} value={t.id}>👥 {t.name}</option>)}
+            </select>
+          )}
+          {showTeam && (
+            <select value={form.team_id_2||""} onChange={e=>setForm(f=>({...f,team_id_2:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
+              <option value="">-- No Team #2 --</option>
+              {teamGroups.map(t => <option key={t.id} value={t.id}>👥 {t.name}</option>)}
+            </select>
+          )}
+          {showTeam && (
+            <select value={form.team_id_3||""} onChange={e=>setForm(f=>({...f,team_id_3:e.target.value}))} style={{ border:`1px solid ${C.border}`, borderRadius:6, padding:"8px 10px", fontSize:13, boxSizing:"border-box" }}>
+              <option value="">-- No Team #3 --</option>
               {teamGroups.map(t => <option key={t.id} value={t.id}>👥 {t.name}</option>)}
             </select>
           )}
@@ -812,7 +823,7 @@ function MemberFormFields({ form, setForm, showTeam=false, showCgp=false, teamGr
 const emptyMemberForm = () => ({
   name:"", email:"", password:"", role:"", phone:"",
   checkin_time:"09:00", end_time:"18:00", grace_minutes:15,
-  job_description:"", team_id:"", cgp_id:"", cgp_id_2:"", cgp_id_3:"", is_manager:false
+  job_description:"", team_id:"", team_id_2:"", team_id_3:"", cgp_id:"", cgp_id_2:"", cgp_id_3:"", is_manager:false
 })
 
 // ============ SHARED: Gmail Credentials Vault ============
@@ -954,26 +965,22 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
   const [existingSelect, setExistingSelect] = useState("")
   const [newForm, setNewForm] = useState(emptyMemberForm())
   const [credShow, setCredShow] = useState(null)
-  const [teamMemberIds, setTeamMemberIds] = useState([])
-
-  // For Teams: load from team_members junction table
-  useEffect(() => {
-    if (!isCGP) {
-      supabase.from('team_members').select('member_id').eq('team_id', groupId)
-        .then(({ data }) => setTeamMemberIds((data||[]).map(x => x.member_id)))
-    }
-  }, [groupId, isCGP])
-
   // Check membership
   const memberInGroup = (m) => {
     if (isCGP) return m.cgp_id === groupId || m.cgp_id_2 === groupId || m.cgp_id_3 === groupId
-    return teamMemberIds.includes(m.id)
+    return m.team_id === groupId || m.team_id_2 === groupId || m.team_id_3 === groupId
   }
 
   const findEmptyCgpSlot = (m) => {
     if (!m.cgp_id) return 'cgp_id'
     if (!m.cgp_id_2) return 'cgp_id_2'
     if (!m.cgp_id_3) return 'cgp_id_3'
+    return null
+  }
+  const findEmptyTeamSlot = (m) => {
+    if (!m.team_id) return 'team_id'
+    if (!m.team_id_2) return 'team_id_2'
+    if (!m.team_id_3) return 'team_id_3'
     return null
   }
 
@@ -990,16 +997,10 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
       if (!slot) return alert("Yeh member already 3 CGPs mein hai (max limit)!")
       await supabase.from('members').update({ [slot]: groupId }).eq('id', existingSelect)
     } else {
-      // Use team_members junction table
-      const { error } = await supabase.from('team_members').insert({
-        id: 'tm_' + Date.now(),
-        team_id: groupId,
-        member_id: existingSelect
-      })
-      if (error && error.code !== '23505') return alert("Error: " + error.message)
-      // Reload team member IDs
-      const { data } = await supabase.from('team_members').select('member_id').eq('team_id', groupId)
-      setTeamMemberIds((data||[]).map(x => x.member_id))
+      const member = allMembers.find(m => m.id === existingSelect)
+      const slot = findEmptyTeamSlot(member)
+      if (!slot) return alert("Yeh member already 3 Teams mein hai (max limit)!")
+      await supabase.from('members').update({ [slot]: groupId }).eq('id', existingSelect)
     }
     setExistingSelect(""); setAddMode(null)
     refresh()
@@ -1022,12 +1023,6 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
     const { error } = await supabase.from('members').insert(insertData)
     if (error) return alert("Error: " + error.message)
     await supabase.from('member_stats').insert({ member_id:id, late_count:0, strikes:0 })
-    // Also add to team_members if team
-    if (!isCGP) {
-      await supabase.from('team_members').insert({ id:'tm_'+Date.now(), team_id:groupId, member_id:id })
-      const { data } = await supabase.from('team_members').select('member_id').eq('team_id', groupId)
-      setTeamMemberIds((data||[]).map(x => x.member_id))
-    }
     setCredShow({ email:newForm.email, password, name:newForm.name })
     setNewForm(emptyMemberForm())
     setAddMode(null)
@@ -1044,10 +1039,12 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
       else if (member.cgp_id_3 === groupId) updateData.cgp_id_3 = null
       await supabase.from('members').update(updateData).eq('id', memberId)
     } else {
-      // Remove from junction table only — does NOT affect other teams
-      await supabase.from('team_members').delete()
-        .eq('team_id', groupId).eq('member_id', memberId)
-      setTeamMemberIds(ids => ids.filter(id => id !== memberId))
+      const member = allMembers.find(m => m.id === memberId)
+      const upd = {}
+      if (member.team_id === groupId) upd.team_id = null
+      else if (member.team_id_2 === groupId) upd.team_id_2 = null
+      else if (member.team_id_3 === groupId) upd.team_id_3 = null
+      await supabase.from('members').update(upd).eq('id', memberId)
     }
     refresh()
   }
@@ -1115,7 +1112,7 @@ function GroupMembersManage({ groupId, groupMode, allMembers, refresh, canManage
           <div key={m.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ width:32, height:32, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
             <div style={{ flex:1 }}>
-              <p style={{ color:C.text, fontSize:13, fontWeight:600 }}>{m.name} {m.is_team_lead && groupMode==='team' && "👑"}</p>
+              <p style={{ color:C.text, fontSize:13, fontWeight:600 }}>{m.name}</p>
               <p style={{ color:C.textMuted, fontSize:11 }}>{m.role} · 🕐 {to12(m.checkin_time)} → {to12(m.end_time||"18:00")}</p>
             </div>
             {canManage && (
@@ -1261,7 +1258,7 @@ function GroupsSection({ data, refresh, groupType, sectionLabel }) {
             <div style={{ width:44, height:44, borderRadius:10, background:getColor(t.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, color:"#fff" }}>{groupType === 'cgp' ? "🚀" : "👥"}</div>
             <div style={{ flex:1, cursor:"pointer" }} onClick={()=>setSelectedTeam(t.id)}>
               <p style={{ color:C.text, fontSize:15, fontWeight:600 }}>{t.name}</p>
-              <p style={{ color:C.textMuted, fontSize:12 }}>{t.description || "No description"} · 👤 {data.members.filter(m => isCGP ? (m.cgp_id===t.id || m.cgp_id_2===t.id || m.cgp_id_3===t.id) : m.team_id===t.id).length} · 📊 {data.accounts.filter(a=>a.team_id===t.id).length}</p>
+              <p style={{ color:C.textMuted, fontSize:12 }}>{t.description || "No description"} · 👤 {data.members.filter(m => isCGP ? (m.cgp_id===t.id || m.cgp_id_2===t.id || m.cgp_id_3===t.id) : (m.team_id===t.id || m.team_id_2===t.id || m.team_id_3===t.id)).length} · 📊 {data.accounts.filter(a=>a.team_id===t.id).length}</p>
             </div>
             <button onClick={()=>setSelectedTeam(t.id)} style={{ background:C.primaryLight, border:"none", color:C.primary, padding:"7px 14px", borderRadius:6, fontSize:12, cursor:"pointer", fontWeight:600 }}>Open →</button>
             <button onClick={()=>{setEditId(t.id); setEditForm({name:t.name, description:t.description||"", team_lead_id:t.team_lead_id||""})}} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.textMuted, padding:"7px 12px", borderRadius:6, fontSize:12, cursor:"pointer" }}>Edit</button>
@@ -2181,7 +2178,7 @@ function AdminOverview({ data }) {
             {groups.map(t => {
               const tm = data.members.filter(m => kind === 'cgp' 
                 ? (m.cgp_id === t.id || m.cgp_id_2 === t.id || m.cgp_id_3 === t.id)
-                : m.team_id === t.id)
+                : (m.team_id === t.id || m.team_id_2 === t.id || m.team_id_3 === t.id))
               const ta = data.accounts.filter(a => a.team_id === t.id)
               const done = ta.filter(a => a.status === 'done' && a.status_date === td).length
               const own = ta.filter(a => (a.account_type||'own') === 'own').length
@@ -2226,7 +2223,7 @@ function AdminMembers({ data, refresh }) {
       end_time:form.end_time, grace_minutes:form.grace_minutes,
       job_description:form.job_description||null,
       avatar, is_admin:false, is_team_lead:false, is_manager: !!form.is_manager,
-      team_id:form.team_id||null, cgp_id:form.cgp_id||null, cgp_id_2:form.cgp_id_2||null, cgp_id_3:form.cgp_id_3||null
+      team_id:form.team_id||null, team_id_2:form.team_id_2||null, team_id_3:form.team_id_3||null, cgp_id:form.cgp_id||null, cgp_id_2:form.cgp_id_2||null, cgp_id_3:form.cgp_id_3||null
     })
     if (error) return alert("Error: " + error.message)
     await supabase.from('member_stats').insert({ member_id:id, late_count:0, strikes:0 })
@@ -2244,7 +2241,7 @@ function AdminMembers({ data, refresh }) {
       role:editForm.role, phone:editForm.phone||null, checkin_time:editForm.checkin_time,
       end_time:editForm.end_time, grace_minutes:editForm.grace_minutes,
       job_description:editForm.job_description||null,
-      avatar, team_id:editForm.team_id||null, cgp_id:editForm.cgp_id||null, cgp_id_2:editForm.cgp_id_2||null, cgp_id_3:editForm.cgp_id_3||null,
+      avatar, team_id:editForm.team_id||null, team_id_2:editForm.team_id_2||null, team_id_3:editForm.team_id_3||null, cgp_id:editForm.cgp_id||null, cgp_id_2:editForm.cgp_id_2||null, cgp_id_3:editForm.cgp_id_3||null,
       is_manager: !!editForm.is_manager
     }).eq('id', editId)
     setEditId(null); setEditForm(null)
@@ -2296,13 +2293,15 @@ function AdminMembers({ data, refresh }) {
               <p style={{ color:C.textMuted, fontSize:12 }}>
                 {m.email} · {m.role}{m.phone && ` · 📱 ${m.phone}`} · 🕐 {to12(m.checkin_time)} → {to12(m.end_time||"18:00")} (grace {m.grace_minutes ?? 15}m)
                 {m.team_id && ` · 👥 ${data.teams.find(t=>t.id===m.team_id)?.name || "Team"}`}
+                {m.team_id_2 && ` · 👥 ${data.teams.find(t=>t.id===m.team_id_2)?.name || "Team"}`}
+                {m.team_id_3 && ` · 👥 ${data.teams.find(t=>t.id===m.team_id_3)?.name || "Team"}`}
                 {m.cgp_id && ` · 🚀 ${data.teams.find(t=>t.id===m.cgp_id)?.name || "CGP"}`}
                 {m.cgp_id_2 && ` · 🚀 ${data.teams.find(t=>t.id===m.cgp_id_2)?.name || "CGP"}`}
                 {m.cgp_id_3 && ` · 🚀 ${data.teams.find(t=>t.id===m.cgp_id_3)?.name || "CGP"}`}
               </p>
               {m.job_description && <p style={{ color:C.primary, fontSize:11, marginTop:2 }}>💼 {m.job_description}</p>}
             </div>
-            <button onClick={()=>{setEditId(m.id); setEditForm({name:m.name, email:m.email, password:m.password, role:m.role, phone:m.phone||"", checkin_time:m.checkin_time, end_time:m.end_time||"18:00", grace_minutes:m.grace_minutes??15, job_description:m.job_description||"", team_id:m.team_id||"", cgp_id:m.cgp_id||"", cgp_id_2:m.cgp_id_2||"", cgp_id_3:m.cgp_id_3||"", is_manager:!!m.is_manager})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>Edit</button>
+            <button onClick={()=>{setEditId(m.id); setEditForm({name:m.name, email:m.email, password:m.password, role:m.role, phone:m.phone||"", checkin_time:m.checkin_time, end_time:m.end_time||"18:00", grace_minutes:m.grace_minutes??15, job_description:m.job_description||"", team_id:m.team_id||"", team_id_2:m.team_id_2||"", team_id_3:m.team_id_3||"", cgp_id:m.cgp_id||"", cgp_id_2:m.cgp_id_2||"", cgp_id_3:m.cgp_id_3||"", is_manager:!!m.is_manager})}} style={{ background:C.primaryLight, border:"none", color:C.primary, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer", fontWeight:600 }}>Edit</button>
             <button onClick={()=>deleteMember(m.id)} style={{ background:"transparent", border:`1px solid ${C.border}`, color:C.danger, fontSize:12, padding:"7px 14px", borderRadius:6, cursor:"pointer" }}>✕</button>
           </div>
         ))}
@@ -3041,7 +3040,7 @@ function MemberGroupView({ group, groupMembers, groupMode, user }) {
           <div key={m.id} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", display:"flex", alignItems:"center", gap:12 }}>
             <div style={{ width:32, height:32, borderRadius:"50%", background:getColor(m.id), display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, color:"#fff", fontWeight:600 }}>{m.avatar}</div>
             <div style={{ flex:1 }}>
-              <p style={{ color:C.text, fontSize:13, fontWeight:600 }}>{m.name} {m.is_team_lead && groupMode==='team' && "👑"}</p>
+              <p style={{ color:C.text, fontSize:13, fontWeight:600 }}>{m.name}</p>
               <p style={{ color:C.textMuted, fontSize:11 }}>{m.role} · 🕐 {to12(m.checkin_time)} → {to12(m.end_time||"18:00")}</p>
             </div>
           </div>
