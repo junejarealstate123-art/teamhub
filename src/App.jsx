@@ -242,22 +242,25 @@ function TikTokSheet({ teamId, canEdit, filterByUserId, userName }) {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ data:accs }, { data:cats }, { data:allMembers }, { data:teams }, { data:coms }] = await Promise.all([
+    const [{ data:accs }, { data:cats }, { data:allMembers }, { data:teams }, { data:coms }, { data:teamMems }] = await Promise.all([
       supabase.from('tiktok_accounts').select('*').eq('team_id', teamId).order('sort_order', { nullsFirst:false }).order('created_at'),
       supabase.from('account_categories').select('*').order('created_at'),
       supabase.from('members').select('*').eq('is_admin', false),
       supabase.from('teams').select('id, name, group_type'),
       supabase.from('account_comments').select('*').order('created_at'),
+      supabase.from('team_members').select('member_id').eq('team_id', teamId),
     ])
     setAccounts(accs || [])
     setCategories(cats || [])
     const teamsMap = Object.fromEntries((teams||[]).map(t => [t.id, t]))
     const currentGroup = teamsMap[teamId]
     const isCurrentCGP = currentGroup?.group_type === 'cgp'
-    // Only members who belong to this specific group (team or CGP)
+
+    // For CGP: use cgp_id fields. For Team: use team_members junction table
+    const teamMemberIds = new Set((teamMems||[]).map(x => x.member_id))
     const memberList = (allMembers||[]).filter(m => isCurrentCGP
       ? (m.cgp_id === teamId || m.cgp_id_2 === teamId || m.cgp_id_3 === teamId)
-      : (m.team_id === teamId)
+      : teamMemberIds.has(m.id) || m.team_id === teamId  // support both old + new
     )
     const annotated = memberList.map(m => ({ ...m, label: m.name, inThisGroup: true }))
     setGroupMembers(annotated)
